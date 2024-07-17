@@ -1,0 +1,32 @@
+/* admin.css */
+.form-table th {
+    padding: 10px 10px 10px 0;
+    text-align: left;
+    vertical-align: top;
+}
+
+.form-table td {
+    padding: 10px;
+    vertical-align: top;
+}
+
+.form-table input[type="number"], .form-table input[type="time"], .form-table input[type="text"], .form-table input[type="url"], .form-table input[type="email"] {
+    width: 100%;
+    max-width: 300px;
+}
+
+.button-primary, .button-secondary {
+    margin-top: 10px;
+}
+
+h2 {
+    margin-top: 30px;
+}
+
+.form-table tr td form {
+    display: inline;
+}
+
+.form-table tr td form .button-secondary {
+    margin-left: 10px;
+}
