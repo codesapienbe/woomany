@@ -175,6 +175,14 @@ function mmm_register_store_menu() {
         'mmm_store_reviews_page'
     );
 
+    add_submenu_page(
+        'store-management',
+        __('Store Hours', 'textdomain'),
+        __('Hours', 'textdomain'),
+        'manage_options',
+        'store-hours',
+        'mmm_store_hours_page'
+    );
 
     add_submenu_page(
         'store-management',
@@ -190,7 +198,7 @@ function mmm_register_store_menu() {
 function mmm_store_management_page() {
     echo '<h1>' . __('Store Management', 'textdomain') . '</h1>';
     echo '<p>' . __('Welcome to the Store Management section. Use the submenus to view all stores, add new stores, or manage reviews.', 'textdomain') . '</p>';
-    
+
     // Add buttons for export and import
     echo '<h2>' . __('Export/Import Stores', 'textdomain') . '</h2>';
     echo '<a href="' . wp_nonce_url(admin_url('admin-post.php?action=export_stores'), 'export_stores') . '" class="button button-primary">' . __('Export Stores', 'textdomain') . '</a>';
@@ -236,9 +244,9 @@ function mmm_all_stores_page() {
     echo '<table class="wp-list-table widefat fixed striped">';
     echo '<thead><tr><th>' . __('ID', 'textdomain') . '</th><th>' . __('Name', 'textdomain') . '</th><th>' . __('URL', 'textdomain') . '</th><th>' . __('Email', 'textdomain') . '</th><th>' . __('Phone', 'textdomain') . '</th><th>' . __('Logo URL', 'textdomain') . '</th><th>' . __('Background URL', 'textdomain') . '</th><th>' . __('Active', 'textdomain') . '</th><th>' . __('Validated', 'textdomain') . '</th><th>' . __('Created', 'textdomain') . '</th><th>' . __('Updated', 'textdomain') . '</th><th>' . __('Actions', 'textdomain') . '</th></tr></thead>';
     echo '<tbody>';
-   
 
- if ($stores) {
+
+    if ($stores) {
         foreach ($stores as $store) {
             echo '<tr>';
             echo '<td>' . esc_html($store->store_id) . '</td>';
@@ -306,7 +314,7 @@ function mmm_add_new_store_page() {
 
 // Block 4: Store Reviews and Edit Store Page
 
-// Display store reviews
+// Display store reviews with filters
 function mmm_store_reviews_page() {
     global $wpdb;
 
@@ -315,14 +323,27 @@ function mmm_store_reviews_page() {
     $offset = ($paged - 1) * $per_page;
 
     $search = isset($_GET['s']) ? sanitize_text_field($_GET['s']) : '';
+    $store_filter = isset($_GET['store_id']) ? intval($_GET['store_id']) : '';
+    $customer_filter = isset($_GET['customer_id']) ? intval($_GET['customer_id']) : '';
+    $date_filter_start = isset($_GET['date_start']) ? sanitize_text_field($_GET['date_start']) : '';
+    $date_filter_end = isset($_GET['date_end']) ? sanitize_text_field($_GET['date_end']) : '';
 
     $where = '';
     if ($search) {
-        $where = $wpdb->prepare("WHERE review LIKE %s", '%' . $wpdb->esc_like($search) . '%');
+        $where .= $wpdb->prepare("AND review LIKE %s", '%' . $wpdb->esc_like($search) . '%');
+    }
+    if ($store_filter) {
+        $where .= $wpdb->prepare("AND store_id = %d", $store_filter);
+    }
+    if ($customer_filter) {
+        $where .= $wpdb->prepare("AND customer_id = %d", $customer_filter);
+    }
+    if ($date_filter_start && $date_filter_end) {
+        $where .= $wpdb->prepare("AND created BETWEEN %s AND %s", $date_filter_start, $date_filter_end);
     }
 
-    $total_reviews = $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}store_reviews $where");
-    $reviews = $wpdb->get_results("SELECT * FROM {$wpdb->prefix}store_reviews $where LIMIT $offset, $per_page");
+    $total_reviews = $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}store_reviews WHERE 1=1 $where");
+    $reviews = $wpdb->get_results("SELECT * FROM {$wpdb->prefix}store_reviews WHERE 1=1 $where LIMIT $offset, $per_page");
 
     $total_pages = ceil($total_reviews / $per_page);
 
@@ -334,6 +355,23 @@ function mmm_store_reviews_page() {
     echo '<label class="screen-reader-text" for="review-search-input">' . __('Search Reviews', 'textdomain') . '</label>';
     echo '<input type="search" id="review-search-input" name="s" value="' . esc_attr($search) . '" />';
     echo '<input type="submit" id="search-submit" class="button" value="' . __('Search Reviews', 'textdomain') . '" />';
+    echo '</p>';
+    echo '<p class="filter-box">';
+    echo '<label for="store-filter">' . __('Store', 'textdomain') . '</label>';
+    echo '<select name="store_id" id="store-filter">';
+    echo '<option value="">' . __('All Stores', 'textdomain') . '</option>';
+    $stores = mmm_get_stores();
+    foreach ($stores as $store) {
+        echo '<option value="' . esc_attr($store->store_id) . '"' . selected($store->store_id, $store_filter, false) . '>' . esc_html($store->store_name) . '</option>';
+    }
+    echo '</select>';
+    echo '<label for="customer-filter">' . __('Customer', 'textdomain') . '</label>';
+    echo '<input type="number" name="customer_id" id="customer-filter" value="' . esc_attr($customer_filter) . '" />';
+    echo '<label for="date-filter-start">' . __('Start Date', 'textdomain') . '</label>';
+    echo '<input type="date" name="date_start" id="date-filter-start" value="' . esc_attr($date_filter_start) . '" />';
+    echo '<label for="date-filter-end">' . __('End Date', 'textdomain') . '</label>';
+    echo '<input type="date" name="date_end" id="date-filter-end" value="' . esc_attr($date_filter_end) . '" />';
+    echo '<input type="submit" class="button" value="' . __('Filter', 'textdomain') . '" />';
     echo '</p>';
     echo '</form>';
 
@@ -376,27 +414,105 @@ function mmm_store_reviews_page() {
     echo '</div>';
 }
 
-// Block 5: New API usage page rendering function
+// Display the store hours page
+function mmm_store_hours_page() {
+    global $wpdb;
+
+    $paged = isset($_GET['paged']) ? intval($_GET['paged']) : 1;
+    $per_page = 10;
+    $offset = ($paged - 1) * $per_page;
+
+    $store_filter = isset($_GET['store_id']) ? intval($_GET['store_id']) : '';
+
+    $where = '';
+    if ($store_filter) {
+        $where .= $wpdb->prepare("AND store_id = %d", $store_filter);
+    }
+
+    $total_hours = $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}store_hours WHERE 1=1 $where");
+    $store_hours = $wpdb->get_results("SELECT * FROM {$wpdb->prefix}store_hours WHERE 1=1 $where LIMIT $offset, $per_page");
+
+    $total_pages = ceil($total_hours / $per_page);
+
+    echo '<div class="wrap">';
+    echo '<h1>' . __('Store Hours', 'textdomain') . '</h1>';
+    echo '<form method="get" action="">';
+    echo '<input type="hidden" name="page" value="store-hours" />';
+    echo '<p class="filter-box">';
+    echo '<label for="store-filter">' . __('Store', 'textdomain') . '</label>';
+    echo '<select name="store_id" id="store-filter">';
+    echo '<option value="">' . __('All Stores', 'textdomain') . '</option>';
+    $stores = mmm_get_stores();
+    foreach ($stores as $store) {
+        echo '<option value="' . esc_attr($store->store_id) . '"' . selected($store->store_id, $store_filter, false) . '>' . esc_html($store->store_name) . '</option>';
+    }
+    echo '</select>';
+    echo '<input type="submit" class="button" value="' . __('Filter', 'textdomain') . '" />';
+    echo '</p>';
+    echo '</form>';
+
+    echo '<table class="wp-list-table widefat fixed striped">';
+    echo '<thead><tr><th>' . __('ID', 'textdomain') . '</th><th>' . __('Store ID', 'textdomain') . '</th><th>' . __('Day of Week', 'textdomain') . '</th><th>' . __('Open Time', 'textdomain') . '</th><th>' . __('Close Time', 'textdomain') . '</th><th>' . __('Actions', 'textdomain') . '</th></tr></thead>';
+    echo '<tbody>';
+    if ($store_hours) {
+        foreach ($store_hours as $hour) {
+            echo '<tr>';
+            echo '<td>' . esc_html($hour->id) . '</td>';
+            echo '<td>' . esc_html($hour->store_id) . '</td>';
+            echo '<td>' . esc_html($hour->day_of_week) . '</td>';
+            echo '<td>' . esc_html($hour->open_time) . '</td>';
+            echo '<td>' . esc_html($hour->close_time) . '</td>';
+            echo '<td>';
+            echo '<form method="post" action="" style="display:inline;">';
+            echo '<input type="hidden" name="hour_id" value="' . esc_attr($hour->id) . '" />';
+            echo '<input type="submit" name="mmm_delete_store_hour" value="' . __('Delete', 'textdomain') . '" class="button button-secondary" />';
+            echo '</form>';
+            echo '</td>';
+            echo '</tr>';
+        }
+    } else {
+        echo '<tr><td colspan="6">' . __('No store hours found.', 'textdomain') . '</td></tr>';
+    }
+    echo '</tbody>';
+    echo '</table>';
+
+    echo '<div class="tablenav">';
+    echo '<div class="tablenav-pages">';
+    echo paginate_links(array(
+        'base' => add_query_arg('paged', '%#%'),
+        'format' => '',
+        'prev_text' => __('&laquo;', 'textdomain'),
+        'next_text' => __('&raquo;', 'textdomain'),
+        'total' => $total_pages,
+        'current' => $paged
+    ));
+    echo '</div>';
+    echo '</div>';
+
+    echo '</div>';
+}
+
+// New API usage page rendering function
 function mmm_api_usage_page() {
     ?>
     <div class="wrap">
-        <h1>MMM API Usage</h1>
-        <p>Here you can see the usage of the WooCommerce MMM API.</p>
-        <h2>Available Endpoints</h2>
+        <h1><?php _e('MMM API Usage', 'textdomain'); ?></h1>
+        <p><?php _e('Here you can see the usage of the WooCommerce MMM API.', 'textdomain'); ?></p>
+        <h2><?php _e('Available Endpoints', 'textdomain'); ?></h2>
         <ul>
-            <li><strong>Get All Stores:</strong> GET /wp-json/mmm/v1/stores</li>
-            <li><strong>Add Store:</strong> POST /wp-json/mmm/v1/store</li>
-            <li><strong>Get Store by ID:</strong> GET /wp-json/mmm/v1/store/(?P<id>\d+)</li>
-            <li><strong>Update Store:</strong> POST /wp-json/mmm/v1/store/(?P<id>\d+)</li>
-            <li><strong>Delete Store:</strong> DELETE /wp-json/mmm/v1/store/(?P<id>\d+)</li>
-            <li><strong>Export Stores:</strong> GET /wp-json/mmm/v1/stores/export</li>
-            <li><strong>Import Stores:</strong> POST /wp-json/mmm/v1/stores/import</li>
-            <li><strong>Remove All Stores:</strong> POST /wp-json/mmm/v1/stores/remove_all</li>
-            <li><strong>Generate Mock Stores:</strong> POST /wp-json/mmm/v1/stores/generate_mock</li>
-            <li><strong>Get Store Hours:</strong> GET /wp-json/mmm/v1/store/(?P<id>\d+)/hours</li>
-            <li><strong>Add Store Hour:</strong> POST /wp-json/mmm/v1/store/(?P<id>\d+)/hour</li>
-            <li><strong>Update Store Hour:</strong> POST /wp-json/mmm/v1/store/hour/(?P<hour_id>\d+)</li>
-            <li><strong>Delete Store Hour:</strong> DELETE /wp-json/mmm/v1/store/hour/(?P<hour_id>\d+)</li>
+            <li><strong><?php _e('Get All Stores:', 'textdomain'); ?></strong> GET /wp-json/mmm/v1/stores</li>
+            <li><strong><?php _e('Add Store:', 'textdomain'); ?></strong> POST /wp-json/mmm/v1/store</li>
+            <li><strong><?php _e('Get Store by ID:', 'textdomain'); ?></strong> GET /wp-json/mmm/v1/store/(?P<id>\d+)</li>
+            <li><strong><?php _e('Update Store:', 'textdomain'); ?></strong> POST /wp-json/mmm/v1/store/(?P<id>\d+)</li>
+            <li><strong><?php _e('Delete Store:', 'textdomain'); ?></strong> DELETE /wp-json/mmm/v1/store/(?P<id>\d+)</li>
+            <li><strong><?php _e('Export Stores:', 'textdomain'); ?></strong> GET /wp-json/mmm/v1/stores/export</li>
+            <li><strong><?php _e('Import Stores:', 'textdomain'); ?></strong> POST /wp-json/mmm/v1/stores/import</li>
+            <li><strong><?php _e('Remove All Stores:', 'textdomain'); ?></strong> POST /wp-json/mmm/v1/stores/remove_all</li>
+            <li><strong><?php _e('Generate Mock Stores:', 'textdomain'); ?></strong> POST /wp-json/mmm/v1/stores/generate_mock</li>
+            <li><strong><?php _e('Get Store Hours:', 'textdomain'); ?></strong> GET /wp-json/mmm/v1/store/(?P<id>\d+)/hours</li>
+            <li><strong><?php _e('Add Store Hour:', 'textdomain'); ?></strong> POST /wp-json/mmm/v1/store/(?P<id>\d+)/hour</li>
+            <li><strong><?php _e('Update Store Hour:', 'textdomain'); ?></strong> POST /wp-json/mmm/v1/store/hour/(?P<hour_id>\d+)</li>
+            <li><strong><?php _e('Delete Store Hour:', 'textdomain'); ?></strong> DELETE /wp-json/mmm/v1/store/hour/(?P<hour_id>\d+)</li>
         </ul>
     </div>
     <?php
@@ -514,7 +630,7 @@ function mmm_edit_store_page() {
 }
 
 
-// Block 5: Helper Functions and API Endpoints 
+// Block 5: Helper Functions and API Endpoints
 
 function mmm_get_store($store_id) {
     global $wpdb;
@@ -775,9 +891,7 @@ add_action('rest_api_init', function () {
     ));
 
     register_rest_route('mmm/v1', '/store/(?P<id>\d+)', array(
-       
-
- 'methods' => 'POST',
+        'methods' => 'POST',
         'callback' => 'mmm_update_store_endpoint',
     ));
 
@@ -805,7 +919,7 @@ add_action('rest_api_init', function () {
         'methods' => 'POST',
         'callback' => 'mmm_generate_mock_stores_endpoint',
     ));
-    
+
     register_rest_route('mmm/v1', '/store/(?P<id>\d+)/hours', array(
         'methods' => 'GET',
         'callback' => 'mmm_get_store_hours_endpoint',
