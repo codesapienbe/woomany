@@ -186,18 +186,27 @@ function mmm_register_store_menu() {
 
     add_submenu_page(
         'store-management',
-        __('MMM API Usage', 'textdomain'),
-        __('MMM API Usage', 'textdomain'),
+        __('Import/Export', 'textdomain'),
+        __('Import/Export', 'textdomain'),
+        'manage_options',
+        'import-export',
+        'mmm_store_import_export_page'
+    );
+
+    add_submenu_page(
+        'store-management',
+        __('API Usage', 'textdomain'),
+        __('API Usage', 'textdomain'),
         'manage_options',
         'mmm-api-usage',
         'mmm_api_usage_page'
     );
 }
 
-// UPDATED: Display the main store management page
-function mmm_store_management_page() {
-    echo '<h1>' . __('Store Management', 'textdomain') . '</h1>';
-    echo '<p>' . __('Welcome to the Store Management section. Use the submenus to view all stores, add new stores, or manage reviews.', 'textdomain') . '</p>';
+
+function mmm_store_import_export_page() {
+    echo '<h1>' . __('Import/Export', 'textdomain') . '</h1>';
+    echo '<p>' . __('In this page, you can import and export store data.', 'textdomain') . '</p>';
 
     // Add buttons for export and import
     echo '<h2>' . __('Export/Import Stores', 'textdomain') . '</h2>';
@@ -209,8 +218,21 @@ function mmm_store_management_page() {
     echo '</form>';
 }
 
+// Display the main store management page
+function mmm_store_management_page() {
+    echo '<h1>' . __('Store Management', 'textdomain') . '</h1>';
+    echo '<p>' . __('Welcome to the Store Management section. Use the submenus to view all stores, add new stores, or manage reviews.', 'textdomain') . '</p>';
 
-// Display all stores
+    // Add a button to generate mock stores
+    echo '<h2>' . __('Generate Mock Stores', 'textdomain') . '</h2>';
+    echo '<form method="post" action="' . admin_url('admin-post.php?action=generate_mock_stores') . '">';
+    wp_nonce_field('generate_mock_stores', 'generate_mock_stores_nonce');
+    echo '<input type="submit" class="button button-primary" value="' . __('Generate Mock Stores', 'textdomain') . '" />';
+    echo '</form>';
+}
+
+
+// Display all stores with advanced search
 function mmm_all_stores_page() {
     global $wpdb;
 
@@ -222,7 +244,12 @@ function mmm_all_stores_page() {
 
     $where = '';
     if ($search) {
-        $where = $wpdb->prepare("WHERE store_name LIKE %s OR email LIKE %s", '%' . $wpdb->esc_like($search) . '%', '%' . $wpdb->esc_like($search) . '%');
+        // Levenshtein distance search
+        $where = "WHERE LEAST(
+            LEVENSHTEIN(store_name, '$search'),
+            LEVENSHTEIN(email, '$search'),
+            LEVENSHTEIN(store_url, '$search')
+        ) <= 3";
     }
 
     $total_stores = $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}stores $where");
@@ -231,7 +258,7 @@ function mmm_all_stores_page() {
     $total_pages = ceil($total_stores / $per_page);
 
     echo '<div class="wrap">';
-    echo '<h1>' . __('All Stores', 'textdomain') . '</h1>';
+    echo '<h1>' . __('Stores', 'textdomain') . '</h1>';
     echo '<form method="get" action="">';
     echo '<input type="hidden" name="page" value="all-stores" />';
     echo '<p class="search-box">';
@@ -244,7 +271,6 @@ function mmm_all_stores_page() {
     echo '<table class="wp-list-table widefat fixed striped">';
     echo '<thead><tr><th>' . __('ID', 'textdomain') . '</th><th>' . __('Name', 'textdomain') . '</th><th>' . __('URL', 'textdomain') . '</th><th>' . __('Email', 'textdomain') . '</th><th>' . __('Phone', 'textdomain') . '</th><th>' . __('Logo URL', 'textdomain') . '</th><th>' . __('Background URL', 'textdomain') . '</th><th>' . __('Active', 'textdomain') . '</th><th>' . __('Validated', 'textdomain') . '</th><th>' . __('Created', 'textdomain') . '</th><th>' . __('Updated', 'textdomain') . '</th><th>' . __('Actions', 'textdomain') . '</th></tr></thead>';
     echo '<tbody>';
-
 
     if ($stores) {
         foreach ($stores as $store) {
@@ -287,6 +313,36 @@ function mmm_all_stores_page() {
 
     echo '</div>';
 }
+
+// Define LEVENSHTEIN function if not exists
+if (!function_exists('LEVENSHTEIN')) {
+    function LEVENSHTEIN($str1, $str2) {
+        $length1 = strlen($str1);
+        $length2 = strlen($str2);
+        if ($length1 == 0) return $length2;
+        if ($length2 == 0) return $length1;
+        $matrix = [];
+        for ($i = 0; $i <= $length1; $i++) {
+            $matrix[$i] = array_fill(0, $length2 + 1, 0);
+            $matrix[$i][0] = $i;
+        }
+        for ($j = 0; $j <= $length2; $j++) {
+            $matrix[0][$j] = $j;
+        }
+        for ($i = 1; $i <= $length1; $i++) {
+            for ($j = 1; $j <= $length2; $j++) {
+                $cost = ($str1[$i - 1] == $str2[$j - 1]) ? 0 : 1;
+                $matrix[$i][$j] = min(
+                    $matrix[$i - 1][$j] + 1,
+                    $matrix[$i][$j - 1] + 1,
+                    $matrix[$i - 1][$j - 1] + $cost
+                );
+            }
+        }
+        return $matrix[$length1][$length2];
+    }
+}
+
 
 // Display the add new store page
 function mmm_add_new_store_page() {
@@ -467,6 +523,8 @@ function mmm_store_hours_page() {
             echo '<input type="hidden" name="hour_id" value="' . esc_attr($hour->id) . '" />';
             echo '<input type="submit" name="mmm_delete_store_hour" value="' . __('Delete', 'textdomain') . '" class="button button-secondary" />';
             echo '</form>';
+            echo '<button class="button button-secondary mmm-edit-hour" data-hour-id="' . esc_attr($hour->id) . '" data-store-id="' . esc_attr($hour->store_id) . '" data-day-of-week="' . esc_attr($hour->day_of_week) . '" data-open-time="' . esc_attr($hour->open_time) . '" data-close-time="' . esc_attr($hour->close_time) . '">' . __('Edit', 'textdomain') . '</button>';
+            echo '<button class="button button-secondary mmm-clone-hour" data-hour-id="' . esc_attr($hour->id) . '">' . __('Clone', 'textdomain') . '</button>';
             echo '</td>';
             echo '</tr>';
         }
@@ -492,6 +550,8 @@ function mmm_store_hours_page() {
     echo '</div>';
 }
 
+
+
 // New API usage page rendering function
 function mmm_api_usage_page() {
     ?>
@@ -516,6 +576,44 @@ function mmm_api_usage_page() {
         </ul>
     </div>
     <?php
+}
+
+add_action('wp_ajax_mmm_clone_store_hour', 'mmm_clone_store_hour');
+function mmm_clone_store_hour() {
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error('Unauthorized');
+    }
+
+    global $wpdb;
+
+    $store_id = intval($_POST['store_id']);
+    $day_of_week = intval($_POST['day_of_week']);
+    $open_time = sanitize_text_field($_POST['open_time']);
+    $close_time = sanitize_text_field($_POST['close_time']);
+
+    $wpdb->insert(
+        $wpdb->prefix . 'store_hours',
+        array(
+            'store_id' => $store_id,
+            'day_of_week' => $day_of_week,
+            'open_time' => $open_time,
+            'close_time' => $close_time,
+        )
+    );
+
+    wp_send_json_success();
+}
+
+
+// Enqueue admin scripts and styles
+add_action('admin_enqueue_scripts', 'mmm_enqueue_admin_scripts');
+
+function mmm_enqueue_admin_scripts($hook) {
+    // Load only on the plugin's admin pages
+    if (strpos($hook, 'store-management') !== false) {
+        wp_enqueue_script('mmm-admin-js', plugin_dir_url(__FILE__) . 'admin.js', array('jquery'), null, true);
+        wp_enqueue_style('mmm-admin-css', plugin_dir_url(__FILE__) . 'admin.css');
+    }
 }
 
 

@@ -24,3 +24,24 @@ jQuery(document).ready(function($) {
         return true;
     });
 });
+
+document.addEventListener('DOMContentLoaded', function () {
+    // Edit hour button click handler
+    document.querySelectorAll('.mmm-edit-hour').forEach(function(button) {
+        button.addEventListener('click', function () {
+            var hourId = this.getAttribute('data-hour-id');
+            // Add logic to handle the edit operation, such as displaying a modal with the hour details
+            alert('Edit functionality for hour ID ' + hourId + ' goes here.');
+        });
+    });
+
+    // Clone hour button click handler
+    document.querySelectorAll('.mmm-clone-hour').forEach(function(button) {
+        button.addEventListener('click', function () {
+            var hourId = this.getAttribute('data-hour-id');
+            // Add logic to handle the clone operation, such as sending an AJAX request to clone the hour
+            alert('Clone functionality for hour ID ' + hourId + ' goes here.');
+        });
+    });
+});
+

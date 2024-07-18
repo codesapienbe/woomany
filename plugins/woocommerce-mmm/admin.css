@@ -17,6 +17,7 @@
 
 .button-primary, .button-secondary {
     margin-top: 10px;
+    margin-left: 10px;
 }
 
 h2 {
@@ -30,3 +31,4 @@ h2 {
 .form-table tr td form .button-secondary {
     margin-left: 10px;
 }
+
