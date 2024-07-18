@@ -174,6 +174,16 @@ function mmm_register_store_menu() {
         'store-reviews',
         'mmm_store_reviews_page'
     );
+
+
+    add_submenu_page(
+        'store-management',
+        __('MMM API Usage', 'textdomain'),
+        __('MMM API Usage', 'textdomain'),
+        'manage_options',
+        'mmm-api-usage',
+        'mmm_api_usage_page'
+    );
 }
 
 // UPDATED: Display the main store management page
@@ -365,6 +375,33 @@ function mmm_store_reviews_page() {
 
     echo '</div>';
 }
+
+// Block 5: New API usage page rendering function
+function mmm_api_usage_page() {
+    ?>
+    <div class="wrap">
+        <h1>MMM API Usage</h1>
+        <p>Here you can see the usage of the WooCommerce MMM API.</p>
+        <h2>Available Endpoints</h2>
+        <ul>
+            <li><strong>Get All Stores:</strong> GET /wp-json/mmm/v1/stores</li>
+            <li><strong>Add Store:</strong> POST /wp-json/mmm/v1/store</li>
+            <li><strong>Get Store by ID:</strong> GET /wp-json/mmm/v1/store/(?P<id>\d+)</li>
+            <li><strong>Update Store:</strong> POST /wp-json/mmm/v1/store/(?P<id>\d+)</li>
+            <li><strong>Delete Store:</strong> DELETE /wp-json/mmm/v1/store/(?P<id>\d+)</li>
+            <li><strong>Export Stores:</strong> GET /wp-json/mmm/v1/stores/export</li>
+            <li><strong>Import Stores:</strong> POST /wp-json/mmm/v1/stores/import</li>
+            <li><strong>Remove All Stores:</strong> POST /wp-json/mmm/v1/stores/remove_all</li>
+            <li><strong>Generate Mock Stores:</strong> POST /wp-json/mmm/v1/stores/generate_mock</li>
+            <li><strong>Get Store Hours:</strong> GET /wp-json/mmm/v1/store/(?P<id>\d+)/hours</li>
+            <li><strong>Add Store Hour:</strong> POST /wp-json/mmm/v1/store/(?P<id>\d+)/hour</li>
+            <li><strong>Update Store Hour:</strong> POST /wp-json/mmm/v1/store/hour/(?P<hour_id>\d+)</li>
+            <li><strong>Delete Store Hour:</strong> DELETE /wp-json/mmm/v1/store/hour/(?P<hour_id>\d+)</li>
+        </ul>
+    </div>
+    <?php
+}
+
 
 // Handle delete store action
 add_action('admin_post_delete_store', 'mmm_delete_store_action');

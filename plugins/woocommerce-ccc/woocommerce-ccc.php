@@ -21,6 +21,7 @@ class CccApi {
 
     public function __construct() {
         add_action( 'rest_api_init', array( $this, 'register_routes' ) );
+        add_action( 'admin_menu', array( $this, 'add_admin_menu' ) );
     }
 
     public function register_routes() {
@@ -233,9 +234,36 @@ class CccApi {
             return false;
         }
     }
+
+    public function add_admin_menu() {
+        add_users_page(
+            'CCC API Usage',
+            'CCC API Usage',
+            'manage_options',
+            'ccc-api-usage',
+            array( $this, 'render_admin_page' )
+        );
+    }
+
+    public function render_admin_page() {
+        ?>
+        <div class="wrap">
+            <h1>CCC API Usage</h1>
+            <p>Here you can see the usage of the WooCommerce CCC API.</p>
+            <h2>Available Endpoints</h2>
+            <ul>
+                <li><strong>Register User:</strong> POST /wp-json/woocommerce-ccc/v1/register</li>
+                <li><strong>Login User:</strong> POST /wp-json/woocommerce-ccc/v1/login</li>
+                <li><strong>Get User Info:</strong> GET /wp-json/woocommerce-ccc/v1/user</li>
+                <li><strong>Update User Info:</strong> POST /wp-json/woocommerce-ccc/v1/user/update</li>
+                <li><strong>Update User Password:</strong> POST /wp-json/woocommerce-ccc/v1/user/password</li>
+                <li><strong>Get Customer Info:</strong> GET /wp-json/woocommerce-ccc/v1/customer</li>
+                <li><strong>Update Customer Info:</strong> POST /wp-json/woocommerce-ccc/v1/customer/update</li>
+            </ul>
+        </div>
+        <?php
+    }
 }
 
 // Load plugin
 new CccApi();
-
-
