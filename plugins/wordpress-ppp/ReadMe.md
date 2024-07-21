@@ -62,7 +62,7 @@ The service worker script is enqueued in the footer of the website:
 function wc_ppp_enqueue_scripts() {
     echo '<script>
         if ("serviceWorker" in navigator) {
-            navigator.serviceWorker.register("/wp-content/plugins/woocommerce-ppp/service-worker.js")
+            navigator.serviceWorker.register("/wp-content/plugins/wordpress-ppp/service-worker.js")
             .then(function(registration) {
                 console.log("Service Worker registered with scope:", registration.scope);
             }).catch(function(error) {
@@ -92,7 +92,7 @@ The manifest link is added to the head of the website:
 
 ```php
 function wc_ppp_add_manifest_link() {
-    echo '<link rel="manifest" href="/wp-content/plugins/woocommerce-ppp/manifest.json">';
+    echo '<link rel="manifest" href="/wp-content/plugins/wordpress-ppp/manifest.json">';
 }
 add_action('wp_head', 'wc_ppp_add_manifest_link');
 ```

@@ -1,6 +1,6 @@
 <?php
 /**
- * Plugin Name: WooCommerce-SSS
+ * Plugin Name: WooCommerce SSS
  * Description: WooCommerce Shared Secret Server allows users to store, share, and manage their secrets. Secrets are encrypted and can only be viewed after entering a master password (PIN).
  * Version: 1.0.1
  * Author: Yilmaz Mustafa, Sergey Ryskin, ChatGPT.

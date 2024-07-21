@@ -6,12 +6,12 @@ Version: 1.4
 Authors: Yilmaz Mustafa, Sergey Ryskin, ChatGPT
 */
 
+### Block 1: Plugin Setup and Activation
+
 // Exit if accessed directly
 if (!defined('ABSPATH')) {
     exit;
 }
-
-// Block 1: Plugin Header and Activation Hook
 
 // Activation hook to create custom tables
 register_activation_hook(__FILE__, 'mmm_create_tables');
@@ -74,8 +74,7 @@ function mmm_create_tables() {
     dbDelta($store_hours_table);
 }
 
-
-// Block 2: Product Data Tab and Fields
+### Block 2: Product Data Tab and Fields
 
 // Add a custom tab to the product data meta box
 add_filter('woocommerce_product_data_tabs', 'mmm_add_product_data_tab');
@@ -132,8 +131,122 @@ function mmm_display_store_info() {
     }
 }
 
+// Add store name filter to the products list
+add_action('restrict_manage_posts', 'mmm_add_store_name_filter');
+function mmm_add_store_name_filter() {
+    global $typenow, $wpdb;
 
-// Block 3: Admin Menu and Pages
+    if ($typenow != 'product') {
+        return;
+    }
+
+    $store_name = isset($_GET['store_name']) ? sanitize_text_field($_GET['store_name']) : '';
+
+    // Get distinct store names
+    $stores = $wpdb->get_results("SELECT DISTINCT store_name FROM {$wpdb->prefix}stores ORDER BY store_name ASC");
+
+    echo '<input type="text" name="store_name" id="store_name_filter" placeholder="' . __('Store Name', 'textdomain') . '" value="' . esc_attr($store_name) . '" />';
+    echo '<select name="store_id" id="store_id_filter">';
+    echo '<option value="">' . __('Select a Store', 'textdomain') . '</option>';
+    foreach ($stores as $store) {
+        $selected = ($store_name == $store->store_name) ? ' selected="selected"' : '';
+        echo '<option value="' . esc_attr($store->store_name) . '"' . $selected . '>' . esc_html($store->store_name) . '</option>';
+    }
+    echo '</select>';
+}
+
+// Adjust the Query to Filter Products by Store Name
+add_action('pre_get_posts', 'mmm_filter_products_by_store_name');
+function mmm_filter_products_by_store_name($query) {
+    global $pagenow, $wpdb;
+
+    if ($pagenow != 'edit.php' || !isset($_GET['post_type']) || $_GET['post_type'] != 'product') {
+        return;
+    }
+
+    if (!empty($_GET['store_name'])) {
+        $store_name = sanitize_text_field($_GET['store_name']);
+        $store_ids = $wpdb->get_col($wpdb->prepare("SELECT store_id FROM {$wpdb->prefix}stores WHERE store_name = %s", $store_name));
+
+        if (!empty($store_ids)) {
+            $product_ids = $wpdb->get_col("SELECT product_id FROM {$wpdb->prefix}product_store WHERE store_id IN (" . implode(',', array_map('intval', $store_ids)) . ")");
+            $query->query_vars['post__in'] = empty($product_ids) ? array(0) : $product_ids;
+        }
+    }
+}
+
+add_action('admin_footer', 'mmm_inline_store_name_filter_script');
+function mmm_inline_store_name_filter_script() {
+    global $typenow;
+
+    if ($typenow != 'product') {
+        return;
+    }
+    ?>
+    <script type="text/javascript">
+        jQuery(document).ready(function($) {
+            $('#store_name_filter').on('keyup', function() {
+                var input = $(this).val().toLowerCase();
+                $('#store_id_filter option').each(function() {
+                    var text = $(this).text().toLowerCase();
+                    if (text.indexOf(input) !== -1 || input === '') {
+                        $(this).show();
+                    } else {
+                        $(this).hide();
+                    }
+                });
+            });
+
+            $('#store_id_filter').on('change', function() {
+                $('#store_name_filter').val($(this).find('option:selected').text());
+            });
+        });
+    </script>
+    <?php
+}
+
+add_filter('parse_query', 'mmm_save_store_name_filter_in_query_string');
+function mmm_save_store_name_filter_in_query_string($query) {
+    global $pagenow, $typenow;
+
+    if ($pagenow != 'edit.php' || $typenow != 'product') {
+        return;
+    }
+
+    if (!empty($_GET['store_name'])) {
+        $query->set('meta_query', array(
+            array(
+                'key'     => '_store_id',
+                'value'   => sanitize_text_field($_GET['store_name']),
+                'compare' => 'LIKE',
+            ),
+        ));
+    }
+}
+
+add_filter('manage_edit-product_columns', 'mmm_add_store_name_column');
+function mmm_add_store_name_column($columns) {
+    $columns['store_name'] = __('Store Name', 'textdomain');
+    return $columns;
+}
+
+add_action('manage_product_posts_custom_column', 'mmm_display_store_name_column', 10, 2);
+function mmm_display_store_name_column($column, $post_id) {
+    if ($column == 'store_name') {
+        $store_id = get_post_meta($post_id, '_store_id', true);
+        if ($store_id) {
+            global $wpdb;
+            $store_name = $wpdb->get_var($wpdb->prepare("SELECT store_name FROM {$wpdb->prefix}stores WHERE store_id = %d", $store_id));
+            echo esc_html($store_name);
+        } else {
+            echo __('No Store', 'textdomain');
+        }
+    }
+}
+
+### Block 3: Admin Menu and Pages
+
+#### Register Menu and Submenus
 
 // Add a menu item for managing stores
 add_action('admin_menu', 'mmm_register_store_menu');
@@ -203,36 +316,33 @@ function mmm_register_store_menu() {
     );
 }
 
+#### Main Store Management Page
 
-function mmm_store_import_export_page() {
-    echo '<h1>' . __('Import/Export', 'textdomain') . '</h1>';
-    echo '<p>' . __('In this page, you can import and export store data.', 'textdomain') . '</p>';
-
-    // Add buttons for export and import
-    echo '<h2>' . __('Export/Import Stores', 'textdomain') . '</h2>';
-    echo '<a href="' . wp_nonce_url(admin_url('admin-post.php?action=export_stores'), 'export_stores') . '" class="button button-primary">' . __('Export Stores', 'textdomain') . '</a>';
-    echo '<form method="post" action="' . admin_url('admin-post.php?action=import_stores') . '" enctype="multipart/form-data" style="display:inline-block; margin-left:10px;">';
-    wp_nonce_field('import_stores', 'import_stores_nonce');
-    echo '<input type="file" name="import_file" accept=".csv" required />';
-    echo '<input type="submit" class="button button-primary" value="' . __('Import Stores', 'textdomain') . '" />';
-    echo '</form>';
-}
-
-// Display the main store management page
 function mmm_store_management_page() {
-    echo '<h1>' . __('Store Management', 'textdomain') . '</h1>';
-    echo '<p>' . __('Welcome to the Store Management section. Use the submenus to view all stores, add new stores, or manage reviews.', 'textdomain') . '</p>';
+    ?>
+    <div class="wrap">
+        <h1><?php _e('Store Management', 'textdomain'); ?></h1>
+        <p><?php _e('Welcome to the Store Management section. Use the submenus to view all stores, add new stores, or manage reviews.', 'textdomain'); ?></p>
 
-    // Add a button to generate mock stores
-    echo '<h2>' . __('Generate Mock Stores', 'textdomain') . '</h2>';
-    echo '<form method="post" action="' . admin_url('admin-post.php?action=generate_mock_stores') . '">';
-    wp_nonce_field('generate_mock_stores', 'generate_mock_stores_nonce');
-    echo '<input type="submit" class="button button-primary" value="' . __('Generate Mock Stores', 'textdomain') . '" />';
-    echo '</form>';
+        <h2><?php _e('Generate Mock Stores', 'textdomain'); ?></h2>
+        <form method="post" action="<?php echo admin_url('admin-post.php'); ?>">
+            <input type="hidden" name="action" value="generate_mock_stores">
+            <?php wp_nonce_field('generate_mock_stores', 'generate_mock_stores_nonce'); ?>
+            <input type="submit" class="button button-primary" value="<?php _e('Generate Mock Stores', 'textdomain'); ?>">
+        </form>
+
+        <h2><?php _e('Remove All Stores', 'textdomain'); ?></h2>
+        <form method="post" action="<?php echo admin_url('admin-post.php'); ?>">
+            <input type="hidden" name="action" value="remove_all_stores">
+            <?php wp_nonce_field('remove_all_stores', 'remove_all_stores_nonce'); ?>
+            <input type="submit" class="button button-primary" value="<?php _e('Remove All Stores', 'textdomain'); ?>">
+        </form>
+    </div>
+    <?php
 }
 
+#### All Stores Page
 
-// Display all stores with advanced search
 function mmm_all_stores_page() {
     global $wpdb;
 
@@ -244,12 +354,7 @@ function mmm_all_stores_page() {
 
     $where = '';
     if ($search) {
-        // Levenshtein distance search
-        $where = "WHERE LEAST(
-            LEVENSHTEIN(store_name, '$search'),
-            LEVENSHTEIN(email, '$search'),
-            LEVENSHTEIN(store_url, '$search')
-        ) <= 3";
+        $where = $wpdb->prepare("WHERE store_name LIKE %s OR email LIKE %s OR store_url LIKE %s", '%' . $wpdb->esc_like($search) . '%', '%' . $wpdb->esc_like($search) . '%', '%' . $wpdb->esc_like($search) . '%');
     }
 
     $total_stores = $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}stores $where");
@@ -314,45 +419,18 @@ function mmm_all_stores_page() {
     echo '</div>';
 }
 
-// Define LEVENSHTEIN function if not exists
-if (!function_exists('LEVENSHTEIN')) {
-    function LEVENSHTEIN($str1, $str2) {
-        $length1 = strlen($str1);
-        $length2 = strlen($str2);
-        if ($length1 == 0) return $length2;
-        if ($length2 == 0) return $length1;
-        $matrix = [];
-        for ($i = 0; $i <= $length1; $i++) {
-            $matrix[$i] = array_fill(0, $length2 + 1, 0);
-            $matrix[$i][0] = $i;
-        }
-        for ($j = 0; $j <= $length2; $j++) {
-            $matrix[0][$j] = $j;
-        }
-        for ($i = 1; $i <= $length1; $i++) {
-            for ($j = 1; $j <= $length2; $j++) {
-                $cost = ($str1[$i - 1] == $str2[$j - 1]) ? 0 : 1;
-                $matrix[$i][$j] = min(
-                    $matrix[$i - 1][$j] + 1,
-                    $matrix[$i][$j - 1] + 1,
-                    $matrix[$i - 1][$j - 1] + $cost
-                );
-            }
-        }
-        return $matrix[$length1][$length2];
-    }
-}
+#### Add New Store Page
 
-
-// Display the add new store page
 function mmm_add_new_store_page() {
     if (isset($_POST['mmm_add_store'])) {
+        check_admin_referer('add_new_store_action', 'add_new_store_nonce');
         mmm_add_store($_POST['store_name'], $_POST['store_url'], $_POST['email'], $_POST['phone'], $_POST['token'], $_POST['secret'], $_POST['logo_url'], $_POST['background_url']);
         echo '<div class="notice notice-success is-dismissible"><p>' . __('Store added successfully.', 'textdomain') . '</p></div>';
     }
 
     echo '<h1>' . __('Add New Store', 'textdomain') . '</h1>';
     echo '<form method="post" action="">';
+    wp_nonce_field('add_new_store_action', 'add_new_store_nonce');
     echo '<table class="form-table">';
     echo '<tr><th>' . __('Store Name', 'textdomain') . '</th><td><input type="text" name="store_name" required /></td></tr>';
     echo '<tr><th>' . __('Store URL', 'textdomain') . '</th><td><input type="url" name="store_url" required /></td></tr>';
@@ -367,10 +445,8 @@ function mmm_add_new_store_page() {
     echo '</form>';
 }
 
+#### Store Reviews Page
 
-// Block 4: Store Reviews and Edit Store Page
-
-// Display store reviews with filters
 function mmm_store_reviews_page() {
     global $wpdb;
 
@@ -415,7 +491,9 @@ function mmm_store_reviews_page() {
     echo '<p class="filter-box">';
     echo '<label for="store-filter">' . __('Store', 'textdomain') . '</label>';
     echo '<select name="store_id" id="store-filter">';
-    echo '<option value="">' . __('All Stores', 'textdomain') . '</option>';
+    echo '<option value="">'
+
+        . __('All Stores', 'textdomain') . '</option>';
     $stores = mmm_get_stores();
     foreach ($stores as $store) {
         echo '<option value="' . esc_attr($store->store_id) . '"' . selected($store->store_id, $store_filter, false) . '>' . esc_html($store->store_name) . '</option>';
@@ -470,7 +548,8 @@ function mmm_store_reviews_page() {
     echo '</div>';
 }
 
-// Display the store hours page
+#### Store Hours Page
+
 function mmm_store_hours_page() {
     global $wpdb;
 
@@ -519,12 +598,8 @@ function mmm_store_hours_page() {
             echo '<td>' . esc_html($hour->open_time) . '</td>';
             echo '<td>' . esc_html($hour->close_time) . '</td>';
             echo '<td>';
-            echo '<form method="post" action="" style="display:inline;">';
-            echo '<input type="hidden" name="hour_id" value="' . esc_attr($hour->id) . '" />';
-            echo '<input type="submit" name="mmm_delete_store_hour" value="' . __('Delete', 'textdomain') . '" class="button button-secondary" />';
-            echo '</form>';
-            echo '<button class="button button-secondary mmm-edit-hour" data-hour-id="' . esc_attr($hour->id) . '" data-store-id="' . esc_attr($hour->store_id) . '" data-day-of-week="' . esc_attr($hour->day_of_week) . '" data-open-time="' . esc_attr($hour->open_time) . '" data-close-time="' . esc_attr($hour->close_time) . '">' . __('Edit', 'textdomain') . '</button>';
-            echo '<button class="button button-secondary mmm-clone-hour" data-hour-id="' . esc_attr($hour->id) . '">' . __('Clone', 'textdomain') . '</button>';
+            echo '<a href="' . admin_url('admin.php?page=edit-store-hour&id=' . $hour->id) . '">' . __('Edit', 'textdomain') . '</a> | ';
+            echo '<a href="' . wp_nonce_url(admin_url('admin-post.php?action=delete_store_hour&id=' . $hour->id), 'delete_store_hour') . '" onclick="return confirm(\'' . __('Are you sure you want to delete this store hour?', 'textdomain') . '\')">' . __('Delete', 'textdomain') . '</a>';
             echo '</td>';
             echo '</tr>';
         }
@@ -550,185 +625,71 @@ function mmm_store_hours_page() {
     echo '</div>';
 }
 
+### Block 4: Import-Export and API Usage Pages
 
+#### Import-Export Page
 
-// New API usage page rendering function
+function mmm_store_import_export_page() {
+    if (isset($_POST['mmm_export_stores'])) {
+        check_admin_referer('export_stores_action', 'export_stores_nonce');
+        mmm_export_stores();
+    }
+
+    if (isset($_POST['mmm_import_stores'])) {
+        check_admin_referer('import_stores_action', 'import_stores_nonce');
+        if (!empty($_FILES['import_file']['tmp_name'])) {
+            mmm_import_stores($_FILES['import_file']);
+            echo '<div class="notice notice-success is-dismissible"><p>' . __('Stores imported successfully.', 'textdomain') . '</p></div>';
+        }
+    }
+
+    echo '<div class="wrap">';
+    echo '<h1>' . __('Import/Export', 'textdomain') . '</h1>';
+    echo '<p>' . __('In this page, you can import and export store data.', 'textdomain') . '</p>';
+
+    echo '<h2>' . __('Export Stores', 'textdomain') . '</h2>';
+    echo '<form method="post" action="">';
+    wp_nonce_field('export_stores_action', 'export_stores_nonce');
+    echo '<input type="submit" name="mmm_export_stores" class="button button-primary" value="' . __('Export Stores', 'textdomain') . '" />';
+    echo '</form>';
+
+    echo '<h2>' . __('Import Stores', 'textdomain') . '</h2>';
+    echo '<form method="post" action="" enctype="multipart/form-data">';
+    wp_nonce_field('import_stores_action', 'import_stores_nonce');
+    echo '<input type="file" name="import_file" accept=".csv" required />';
+    echo '<input type="submit" name="mmm_import_stores" class="button button-primary" value="' . __('Import Stores', 'textdomain') . '" />';
+    echo '</form>';
+    echo '</div>';
+}
+
+#### API Usage Page
+
 function mmm_api_usage_page() {
-    ?>
-    <div class="wrap">
-        <h1><?php _e('MMM API Usage', 'textdomain'); ?></h1>
-        <p><?php _e('Here you can see the usage of the WooCommerce MMM API.', 'textdomain'); ?></p>
-        <h2><?php _e('Available Endpoints', 'textdomain'); ?></h2>
-        <ul>
-            <li><strong><?php _e('Get All Stores:', 'textdomain'); ?></strong> GET /wp-json/mmm/v1/stores</li>
-            <li><strong><?php _e('Add Store:', 'textdomain'); ?></strong> POST /wp-json/mmm/v1/store</li>
-            <li><strong><?php _e('Get Store by ID:', 'textdomain'); ?></strong> GET /wp-json/mmm/v1/store/(?P<id>\d+)</li>
-            <li><strong><?php _e('Update Store:', 'textdomain'); ?></strong> POST /wp-json/mmm/v1/store/(?P<id>\d+)</li>
-            <li><strong><?php _e('Delete Store:', 'textdomain'); ?></strong> DELETE /wp-json/mmm/v1/store/(?P<id>\d+)</li>
-            <li><strong><?php _e('Export Stores:', 'textdomain'); ?></strong> GET /wp-json/mmm/v1/stores/export</li>
-            <li><strong><?php _e('Import Stores:', 'textdomain'); ?></strong> POST /wp-json/mmm/v1/stores/import</li>
-            <li><strong><?php _e('Remove All Stores:', 'textdomain'); ?></strong> POST /wp-json/mmm/v1/stores/remove_all</li>
-            <li><strong><?php _e('Generate Mock Stores:', 'textdomain'); ?></strong> POST /wp-json/mmm/v1/stores/generate_mock</li>
-            <li><strong><?php _e('Get Store Hours:', 'textdomain'); ?></strong> GET /wp-json/mmm/v1/store/(?P<id>\d+)/hours</li>
-            <li><strong><?php _e('Add Store Hour:', 'textdomain'); ?></strong> POST /wp-json/mmm/v1/store/(?P<id>\d+)/hour</li>
-            <li><strong><?php _e('Update Store Hour:', 'textdomain'); ?></strong> POST /wp-json/mmm/v1/store/hour/(?P<hour_id>\d+)</li>
-            <li><strong><?php _e('Delete Store Hour:', 'textdomain'); ?></strong> DELETE /wp-json/mmm/v1/store/hour/(?P<hour_id>\d+)</li>
-        </ul>
-    </div>
-    <?php
+    echo '<div class="wrap">';
+    echo '<h1>' . __('MMM API Usage', 'textdomain') . '</h1>';
+    echo '<p>' . __('Here you can see the usage of the WooCommerce MMM API.', 'textdomain') . '</p>';
+    echo '<h2>' . __('Available Endpoints', 'textdomain') . '</h2>';
+    echo '<ul>';
+    echo '<li><strong>' . __('Get All Stores:', 'textdomain') . '</strong> GET /wp-json/mmm/v1/stores</li>';
+    echo '<li><strong>' . __('Add Store:', 'textdomain') . '</strong> POST /wp-json/mmm/v1/store</li>';
+    echo '<li><strong>' . __('Get Store by ID:', 'textdomain') . '</strong> GET /wp-json/mmm/v1/store/(?P<id>\d+)</li>';
+    echo '<li><strong>' . __('Update Store:', 'textdomain') . '</strong> POST /wp-json/mmm/v1/store/(?P<id>\d+)</li>';
+    echo '<li><strong>' . __('Delete Store:', 'textdomain') . '</strong> DELETE /wp-json/mmm/v1/store/(?P<id>\d+)</li>';
+    echo '<li><strong>' . __('Export Stores:', 'textdomain') . '</strong> GET /wp-json/mmm/v1/stores/export</li>';
+    echo '<li><strong>' . __('Import Stores:', 'textdomain') . '</strong> POST /wp-json/mmm/v1/stores/import</li>';
+    echo '<li><strong>' . __('Remove All Stores:', 'textdomain') . '</strong> POST /wp-json/mmm/v1/stores/remove_all</li>';
+    echo '<li><strong>' . __('Generate Mock Stores:', 'textdomain') . '</strong> POST /wp-json/mmm/v1/stores/generate_mock</li>';
+    echo '<li><strong>' . __('Get Store Hours:', 'textdomain') . '</strong> GET /wp-json/mmm/v1/store/(?P<id>\d+)/hours</li>';
+    echo '<li><strong>' . __('Add Store Hour:', 'textdomain') . '</strong> POST /wp-json/mmm/v1/store/(?P<id>\d+)/hour</li>';
+    echo '<li><strong>' . __('Update Store Hour:', 'textdomain') . '</strong> POST /wp-json/mmm/v1/store/hour/(?P<hour_id>\d+)</li>';
+    echo '<li><strong>' . __('Delete Store Hour:', 'textdomain') . '</strong> DELETE /wp-json/mmm/v1/store/hour/(?P<hour_id>\d+)</li>';
+    echo '</ul>';
+    echo '</div>';
 }
 
-add_action('wp_ajax_mmm_clone_store_hour', 'mmm_clone_store_hour');
-function mmm_clone_store_hour() {
-    if (!current_user_can('manage_options')) {
-        wp_send_json_error('Unauthorized');
-    }
+### Block 5: Helper Functions and API Endpoints
 
-    global $wpdb;
-
-    $store_id = intval($_POST['store_id']);
-    $day_of_week = intval($_POST['day_of_week']);
-    $open_time = sanitize_text_field($_POST['open_time']);
-    $close_time = sanitize_text_field($_POST['close_time']);
-
-    $wpdb->insert(
-        $wpdb->prefix . 'store_hours',
-        array(
-            'store_id' => $store_id,
-            'day_of_week' => $day_of_week,
-            'open_time' => $open_time,
-            'close_time' => $close_time,
-        )
-    );
-
-    wp_send_json_success();
-}
-
-
-// Enqueue admin scripts and styles
-add_action('admin_enqueue_scripts', 'mmm_enqueue_admin_scripts');
-
-function mmm_enqueue_admin_scripts($hook) {
-    // Load only on the plugin's admin pages
-    if (strpos($hook, 'store-management') !== false) {
-        wp_enqueue_script('mmm-admin-js', plugin_dir_url(__FILE__) . 'admin.js', array('jquery'), null, true);
-        wp_enqueue_style('mmm-admin-css', plugin_dir_url(__FILE__) . 'admin.css');
-    }
-}
-
-
-// Handle delete store action
-add_action('admin_post_delete_store', 'mmm_delete_store_action');
-function mmm_delete_store_action() {
-    if (isset($_GET['store_id']) && check_admin_referer('delete_store')) {
-        mmm_delete_store(intval($_GET['store_id']));
-        wp_redirect(admin_url('admin.php?page=all-stores'));
-        exit;
-    }
-}
-
-// Handle delete review action
-add_action('admin_post_delete_review', 'mmm_delete_review_action');
-function mmm_delete_review_action() {
-    global $wpdb;
-    if (isset($_GET['review_id']) && check_admin_referer('delete_review')) {
-        $wpdb->delete("{$wpdb->prefix}store_reviews", array('review_id' => intval($_GET['review_id'])));
-        wp_redirect(admin_url('admin.php?page=store-reviews'));
-        exit;
-    }
-}
-
-// Display the edit store page
-add_action('admin_menu', 'mmm_register_edit_store_page');
-function mmm_register_edit_store_page() {
-    add_submenu_page(
-        null,
-        __('Edit Store', 'textdomain'),
-        __('Edit Store', 'textdomain'),
-        'manage_options',
-        'edit-store',
-        'mmm_edit_store_page'
-    );
-}
-
-function mmm_edit_store_page() {
-    if (isset($_POST['mmm_update_store'])) {
-        mmm_update_store(intval($_POST['store_id']), $_POST['store_name'], $_POST['store_url'], $_POST['email'], $_POST['phone'], $_POST['token'], $_POST['secret'], $_POST['logo_url'], $_POST['background_url']);
-        echo '<div class="notice notice-success is-dismissible"><p>' . __('Store updated successfully.', 'textdomain') . '</p></div>';
-    }
-
-    if (isset($_POST['mmm_add_store_hour'])) {
-        mmm_add_store_hour(intval($_POST['store_id']), intval($_POST['day_of_week']), $_POST['open_time'], $_POST['close_time']);
-        echo '<div class="notice notice-success is-dismissible"><p>' . __('Store hour added successfully.', 'textdomain') . '</p></div>';
-    }
-
-    if (isset($_POST['mmm_update_store_hour'])) {
-        mmm_update_store_hour(intval($_POST['hour_id']), intval($_POST['day_of_week']), $_POST['open_time'], $_POST['close_time']);
-        echo '<div class="notice notice-success is-dismissible"><p>' . __('Store hour updated successfully.', 'textdomain') . '</p></div>';
-    }
-
-    if (isset($_POST['mmm_delete_store_hour'])) {
-        mmm_delete_store_hour(intval($_POST['hour_id']));
-        echo '<div class="notice notice-success is-dismissible"><p>' . __('Store hour deleted successfully.', 'textdomain') . '</p></div>';
-    }
-
-    $store_id = intval($_GET['id']);
-    $store = mmm_get_store($store_id);
-    $store_hours = mmm_get_store_hours($store_id);
-
-    echo '<h1>' . __('Edit Store', 'textdomain') . '</h1>';
-    echo '<form method="post" action="">';
-    echo '<input type="hidden" name="store_id" value="' . esc_attr($store->store_id) . '" />';
-    echo '<table class="form-table">';
-    echo '<tr><th>' . __('Store Name', 'textdomain') . '</th><td><input type="text" name="store_name" value="' . esc_attr($store->store_name) . '" required /></td></tr>';
-    echo '<tr><th>' . __('Store URL', 'textdomain') . '</th><td><input type="url" name="store_url" value="' . esc_attr($store->store_url) . '" required /></td></tr>';
-    echo '<tr><th>' . __('Email', 'textdomain') . '</th><td><input type="email" name="email" value="' . esc_attr($store->email) . '" required /></td></tr>';
-    echo '<tr><th>' . __('Phone', 'textdomain') . '</th><td><input type="text" name="phone" value="' . esc_attr($store->phone) . '" required /></td></tr>';
-    echo '<tr><th>' . __('Token', 'textdomain') . '</th><td><input type="text" name="token" value="' . esc_attr($store->token) . '" required /></td></tr>';
-    echo '<tr><th>' . __('Secret', 'textdomain') . '</th><td><input type="text" name="secret" value="' . esc_attr($store->secret) . '" required /></td></tr>';
-    echo '<tr><th>' . __('Logo URL', 'textdomain') . '</th><td><input type="url" name="logo_url" value="' . esc_attr($store->logo_url) . '" /></td></tr>';
-    echo '<tr><th>' . __('Background URL', 'textdomain') . '</th><td><input type="url" name="background_url" value="' . esc_attr($store->background_url) . '" /></td></tr>';
-    echo '</table>';
-    echo '<input type="submit" name="mmm_update_store" value="' . __('Update Store', 'textdomain') . '" class="button button-primary" />';
-    echo '</form>';
-
-    echo '<h2>' . __('Store Opening Hours', 'textdomain') . '</h2>';
-    echo '<form method="post" action="">';
-    echo '<input type="hidden" name="store_id" value="' . esc_attr($store->store_id) . '" />';
-    echo '<table class="form-table">';
-    echo '<tr>';
-    echo '<th>' . __('Day of Week', 'textdomain') . '</th>';
-    echo '<th>' . __('Open Time', 'textdomain') . '</th>';
-    echo '<th>' . __('Close Time', 'textdomain') . '</th>';
-    echo '<th>' . __('Actions', 'textdomain') . '</th>';
-    echo '</tr>';
-
-    foreach ($store_hours as $hour) {
-        echo '<tr>';
-        echo '<td>' . esc_html($hour->day_of_week) . '</td>';
-        echo '<td>' . esc_html($hour->open_time) . '</td>';
-        echo '<td>' . esc_html($hour->close_time) . '</td>';
-        echo '<td>';
-        echo '<form method="post" action="" style="display:inline;">';
-        echo '<input type="hidden" name="hour_id" value="' . esc_attr($hour->id) . '" />';
-        echo '<input type="submit" name="mmm_delete_store_hour" value="' . __('Delete', 'textdomain') . '" class="button button-secondary" />';
-        echo '</form>';
-        echo '</td>';
-        echo '</tr>';
-    }
-
-    echo '<tr>';
-    echo '<td><input type="number" name="day_of_week" value="" min="1" max="7" required /></td>';
-    echo '<td><input type="time" name="open_time" value="" required /></td>';
-    echo '<td><input type="time" name="close_time" value="" required /></td>';
-    echo '<td><input type="submit" name="mmm_add_store_hour" value="' . __('Add Hour', 'textdomain') . '" class="button button-primary" /></td>';
-    echo '</tr>';
-    echo '</table>';
-    echo '</form>';
-}
-
-
-// Block 5: Helper Functions and API Endpoints
+#### Helper Functions
 
 function mmm_get_store($store_id) {
     global $wpdb;
@@ -792,11 +753,25 @@ function mmm_delete_store($store_id) {
 
 function mmm_remove_all_stores() {
     global $wpdb;
-    $wpdb->query("DELETE FROM {$wpdb->prefix}stores");
+    // truncate first child tables (store_hours, store_reviews, product_store) then parent table (stores)
+    $wpdb->query("TRUNCATE TABLE {$wpdb->prefix}store_hours");
+    $wpdb->query("TRUNCATE TABLE {$wpdb->prefix}store_reviews");
+    $wpdb->query("TRUNCATE TABLE {$wpdb->prefix}product_store");
+    $wpdb->query("TRUNCATE TABLE {$wpdb->prefix}stores");
+
+    return $wpdb->rows_affected;
 }
 
 function mmm_generate_mock_stores($number_of_stores) {
     global $wpdb;
+
+    // make sure that number of stores is not more than 100.000 because it will take a lot of time
+
+    if ($number_of_stores > 100000) {
+        $number_of_stores = 100000;
+        $error_message = 'Number of stores is limited to 100.000. Hence, only 100.000 stores will be generated.';
+        error_log($error_message);
+    }
 
     for ($i = 1; $i <= $number_of_stores; $i++) {
         $store_name = 'Mock Store ' . $i;
@@ -822,7 +797,7 @@ function mmm_export_stores() {
     header('Content-Type: text/csv');
     header('Content-Disposition: attachment; filename="stores.csv"');
 
-    $output = fopen('php://output', 'w');
+    $output = fopen('php://output', 'w', 'UTF-8');
     fputcsv($output, array('store_id', 'store_name', 'store_url', 'email', 'phone', 'logo_url', 'background_url', 'active', 'validated', 'created', 'updated'));
 
     foreach ($stores as $store) {
@@ -845,20 +820,12 @@ function mmm_export_stores() {
     exit;
 }
 
-function mmm_export_stores_endpoint(WP_REST_Request $request) {
-    ob_start();
-    mmm_export_stores();
-    $csv = ob_get_clean();
-
-    return new WP_REST_Response(array('csv' => $csv), 200);
-}
-
 function mmm_import_stores($file) {
     if (!current_user_can('manage_options')) {
         return;
     }
 
-    if (($handle = fopen($file['tmp_name'], 'r')) !== FALSE) {
+    if (($handle = fopen($file['tmp_name'], 'r', 'UTF-8')) !== FALSE) {
         fgetcsv($handle); // Skip the header row
 
         while (($data = fgetcsv($handle, 1000, ',')) !== FALSE) {
@@ -869,20 +836,12 @@ function mmm_import_stores($file) {
     }
 }
 
-function mmm_import_stores_endpoint(WP_REST_Request $request) {
-    $file = $request->get_file_params()['file'];
-
-    mmm_import_stores($file);
-
-    return new WP_REST_Response(null, 200);
-}
-
 function mmm_import_products_and_stores($file) {
     if (!current_user_can('manage_options')) {
         return;
     }
 
-    if (($handle = fopen($file['tmp_name'], 'r')) !== FALSE) {
+    if (($handle = fopen($file['tmp_name'], 'r', 'UTF-8')) !== FALSE) {
         fgetcsv($handle); // Skip the header row
 
         while (($data = fgetcsv($handle, 1000, ',')) !== FALSE) {
@@ -915,14 +874,6 @@ function mmm_import_products_and_stores($file) {
 
         fclose($handle);
     }
-}
-
-function mmm_import_products_and_stores_endpoint(WP_REST_Request $request) {
-    $file = $request->get_file_params()['file'];
-
-    mmm_import_products_and_stores($file);
-
-    return new WP_REST_Response(null, 200);
 }
 
 function mmm_add_store_hour($store_id, $day_of_week, $open_time, $close_time) {
@@ -971,7 +922,8 @@ function mmm_delete_store_hour($id) {
     );
 }
 
-// API Endpoints
+#### API Endpoints
+
 add_action('rest_api_init', function () {
     register_rest_route('mmm/v1', '/stores', array(
         'methods' => 'GET',
@@ -1080,6 +1032,25 @@ function mmm_generate_mock_stores_endpoint(WP_REST_Request $request) {
     return new WP_REST_Response(null, 201);
 }
 
+function mmm_export_stores_endpoint(WP_REST_Request $request) {
+    ob_start();
+    mmm_export_stores();
+    $csv = ob_get_clean();
+
+    return new WP_REST_Response(array('csv' => $csv), 200);
+}
+
+function mmm_import_stores_endpoint(WP_REST_Request $request) {
+    $file = $request->get_file_params()['file'];
+
+    if ($file && $file['tmp_name']) {
+        mmm_import_stores($file);
+        return new WP_REST_Response(null, 200);
+    } else {
+        return new WP_Error('no_file', 'No file uploaded', array('status' => 400));
+    }
+}
+
 function mmm_get_store_hours_endpoint(WP_REST_Request $request) {
     $store_id = $request['id'];
     return new WP_REST_Response(mmm_get_store_hours($store_id), 200);
@@ -1105,4 +1076,146 @@ function mmm_delete_store_hour_endpoint(WP_REST_Request $request) {
     return new WP_REST_Response(null, 204);
 }
 
-?>
+### Block 6: Handling Form Submissions
+
+// Add the actions for handling form submissions:
+
+// Handle generate mock stores action
+add_action('admin_post_generate_mock_stores', 'mmm_handle_generate_mock_stores');
+function mmm_handle_generate_mock_stores() {
+    check_admin_referer('generate_mock_stores', 'generate_mock_stores_nonce');
+    mmm_generate_mock_stores(10); // Adjust the number of mock stores as needed
+    wp_redirect(admin_url('admin.php?page=store-management'));
+    exit;
+}
+
+// Handle remove all stores action
+add_action('admin_post_remove_all_stores', 'mmm_handle_remove_all_stores');
+function mmm_handle_remove_all_stores() {
+    check_admin_referer('remove_all_stores', 'remove_all_stores_nonce');
+    mmm_remove_all_stores();
+    wp_redirect(admin_url('admin.php?page=store-management'));
+    // notify user that all stores have been removed
+    echo '<div class="notice notice-success is-dismissible"><p>' . __('All stores have been removed.', 'textdomain') . '</p></div>';
+    exit;
+}
+
+// Handle delete store action
+add_action('admin_post_delete_store', 'mmm_delete_store_action');
+function mmm_delete_store_action() {
+    if (isset($_GET['store_id']) && check_admin_referer('delete_store')) {
+        mmm_delete_store(intval($_GET['store_id']));
+        wp_redirect(admin_url('admin.php?page=all-stores'));
+        exit;
+    }
+}
+
+// Handle delete review action
+add_action('admin_post_delete_review', 'mmm_delete_review_action');
+function mmm_delete_review_action() {
+    global $wpdb;
+    if (isset($_GET['review_id']) && check_admin_referer('delete_review')) {
+        $wpdb->delete("{$wpdb->prefix}store_reviews", array('review_id' => intval($_GET['review_id'])));
+        wp_redirect(admin_url('admin.php?page=store-reviews'));
+        exit;
+    }
+}
+
+// Handle delete store hour action
+add_action('admin_post_delete_store_hour', 'mmm_delete_store_hour_action');
+function mmm_delete_store_hour_action() {
+    if (isset($_GET['id']) && check_admin_referer('delete_store_hour')) {
+        mmm_delete_store_hour(intval($_GET['id']));
+        wp_redirect(admin_url('admin.php?page=store-hours'));
+        exit;
+    }
+}
+
+### Block 7: Register Edit Store and Store Hour Pages
+
+#### Register Edit Pages
+
+add_action('admin_menu', 'mmm_register_edit_pages');
+function mmm_register_edit_pages() {
+    add_submenu_page(
+        null,
+        __('Edit Store', 'textdomain'),
+        __('Edit Store', 'textdomain'),
+        'manage_options',
+        'edit-store',
+        'mmm_edit_store_page'
+    );
+
+    add_submenu_page(
+        null,
+        __('Edit Store Hour', 'textdomain'),
+        __('Edit Store Hour', 'textdomain'),
+        'manage_options',
+        'edit-store-hour',
+        'mmm_edit_store_hour_page'
+    );
+}
+
+#### Edit Store Page
+
+function mmm_edit_store_page() {
+    if (isset($_POST['mmm_update_store'])) {
+        check_admin_referer('update_store_action', 'update_store_nonce');
+        mmm_update_store(intval($_POST['store_id']), $_POST['store_name'], $_POST['store_url'], $_POST['email'], $_POST['phone'], $_POST['token'], $_POST['secret'], $_POST['logo_url'], $_POST['background_url']);
+        echo '<div class="notice notice-success is-dismissible"><p>' . __('Store updated successfully.', 'textdomain') . '</p></div>';
+    }
+
+    $store_id = intval($_GET['id']);
+    $store = mmm_get_store($store_id);
+
+    echo '<h1>' . __('Edit Store', 'textdomain') . '</h1>';
+    echo '<form method="post" action="">';
+    wp_nonce_field('update_store_action', 'update_store_nonce');
+    echo '<input type="hidden" name="store_id" value="' . esc_attr($store->store_id) . '" />';
+    echo '<table class="form-table">';
+    echo '<tr><th>' . __('Store Name', 'textdomain') . '</th><td><input type="text" name="store_name" value="' . esc_attr($store->store_name) . '" required /></td></tr>';
+    echo '<tr><th>' . __('Store URL', 'textdomain') . '</th><td><input type="url" name="store_url" value="' . esc_attr($store->store_url) . '" required /></td></tr>';
+    echo '<tr><th>' . __('Email', 'textdomain') . '</th><td><input type="email" name="email" value="' . esc_attr($store->email) . '" required /></td></tr>';
+    echo '<tr><th>' . __('Phone', 'textdomain') . '</th><td><input type="text" name="phone" value="' . esc_attr($store->phone) . '" required /></td></tr>';
+    echo '<tr><th>' . __('Token', 'textdomain') . '</th><td><input type="text" name="token" value="' . esc_attr($store->token) . '" required /></td></tr>';
+    echo '<tr><th>' . __('Secret', 'textdomain') . '</th><td><input type="text" name="secret" value="' . esc_attr($store->secret) . '" required /></td></tr>';
+    echo '<tr><th>' . __('Logo URL', 'textdomain') . '</th><td><input type="url" name="logo_url" value="' . esc_attr($store->logo_url) . '" /></td></tr>';
+    echo '<tr><th>' . __('Background URL', 'textdomain') . '</th><td><input type="url" name="background_url" value="' . esc_attr($store->background_url) . '" /></td></tr>';
+    echo '</table>';
+    echo '<input type="submit" name="mmm_update_store" value="' . __('Update Store', 'textdomain') . '" class="button button-primary" />';
+    echo '</form>';
+}
+
+#### Edit Store Hour Page
+
+function mmm_edit_store_hour_page() {
+    if (isset($_POST['mmm_update_store_hour'])) {
+        check_admin_referer('update_store_hour_action', 'update_store_hour_nonce');
+        mmm_update_store_hour(intval($_POST['hour_id']), intval($_POST['day_of_week']), $_POST['open_time'], $_POST['close_time']);
+        echo '<div class="notice notice-success is-dismissible"><p>' . __('Store hour updated successfully.', 'textdomain') . '</p></div>';
+    }
+
+    $hour_id = intval($_GET['id']);
+    $store_hour = mmm_get_store_hour($hour_id);
+
+    echo '<h1>' . __('Edit Store Hour', 'textdomain') . '</h1>';
+    echo '<form method="post" action="">';
+    wp_nonce_field('update_store_hour_action', 'update_store_hour_nonce');
+    echo '<input type="hidden" name="hour_id" value="' . esc_attr($store_hour->id) . '" />';
+    echo '<table class="form-table">';
+    echo '<tr><th>' . __('Day of Week', 'textdomain') . '</th><td><input type="number" name="day_of_week" value="' . esc_attr($store_hour->day_of_week) . '" min="1" max="7" required /></td></tr>';
+    echo '<tr><th>' . __('Open Time', 'textdomain') . '</th><td><input type="time" name="open_time" value="' . esc_attr($store_hour->open_time) . '" required /></td></tr>';
+    echo '<tr><th>' . __('Close Time', 'textdomain') . '</th><td><input type="time" name="close_time" value="' . esc_attr($store_hour->close_time) . '" required /></td></tr>';
+    echo '</table>';
+    echo '<input type="submit" name="mmm_update_store_hour" value="' . __('Update Store Hour', 'textdomain') . '" class="button button-primary" />';
+    echo '</form>';
+}
+
+### Block 8: Additional Helper Functions
+
+#### Get Store Hour by ID
+
+function mmm_get_store_hour($hour_id) {
+    global $wpdb;
+    return $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}store_hours WHERE id = %d", $hour_id));
+}

@@ -2,6 +2,13 @@
 
 >> WooCommerce CCC (Customer Control Center) is a WordPress plugin that extends the WordPress REST API to provide user and WooCommerce customer management functionality. It allows you to register users, authenticate users, retrieve user information, update user information, update user passwords, retrieve WooCommerce customer information, and update WooCommerce customer information.
 
+## Pre-requisites
+
+1. Install and activate the WooCommerce plugin.
+2. Install and activate the JWT Authentication for WP REST API plugin.
+3. Install `composer require twilio/sdk` to send SMS notifications.
+4. Install and activate the WooCommerce CCC plugin.
+
 ## Plugin Information
 
 - **Plugin Name**: WooCommerce CCC

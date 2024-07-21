@@ -23,7 +23,7 @@ function wc_ppp_woocommerce_notice() {
 function wc_ppp_enqueue_scripts() {
     echo '<script>
         if ("serviceWorker" in navigator) {
-            navigator.serviceWorker.register("/wp-content/plugins/woocommerce-ppp/service-worker.js")
+            navigator.serviceWorker.register("/wp-content/plugins/wordpress-ppp/service-worker.js")
             .then(function(registration) {
                 console.log("Service Worker registered with scope:", registration.scope);
             }).catch(function(error) {
@@ -36,7 +36,7 @@ add_action('wp_footer', 'wc_ppp_enqueue_scripts');
 
 // Add the web app manifest link
 function wc_ppp_add_manifest_link() {
-    echo '<link rel="manifest" href="/wp-content/plugins/woocommerce-ppp/manifest.json">';
+    echo '<link rel="manifest" href="/wp-content/plugins/wordpress-ppp/manifest.json">';
 }
 add_action('wp_head', 'wc_ppp_add_manifest_link');
 
@@ -49,7 +49,7 @@ function wc_ppp_create_service_worker() {
                 return cache.addAll([
                     "/",
                     "/shop/",
-                    "/wp-content/plugins/woocommerce-ppp/offline.html",
+                    "/wp-content/plugins/wordpress-ppp/offline.html",
                     // Add other assets here
                 ]);
             })
@@ -61,7 +61,7 @@ function wc_ppp_create_service_worker() {
             caches.match(event.request).then(function(response) {
                 return response || fetch(event.request);
             }).catch(function() {
-                return caches.match("/wp-content/plugins/woocommerce-ppp/offline.html");
+                return caches.match("/wp-content/plugins/wordpress-ppp/offline.html");
             })
         );
     });
@@ -81,12 +81,12 @@ function wc_ppp_create_manifest() {
         "theme_color": "#000000",
         "icons": [
             {
-                "src": "/wp-content/plugins/woocommerce-ppp/icon-light-small.webp",
+                "src": "/wp-content/plugins/wordpress-ppp/icon-light-small.webp",
                 "sizes": "192x192",
                 "type": "image/webp"
             },
             {
-                "src": "/wp-content/plugins/woocommerce-ppp/icon-light-large.webp",
+                "src": "/wp-content/plugins/wordpress-ppp/icon-light-large.webp",
                 "sizes": "512x512",
                 "type": "image/webp"
             }
