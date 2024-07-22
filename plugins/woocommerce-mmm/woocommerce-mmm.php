@@ -8,7 +8,9 @@ Authors: Yilmaz Mustafa, Sergey Ryskin, ChatGPT
 
 ### Block 1: Plugin Setup and Activation
 
-// Exit if accessed directly
+// include wordpress-md2html class
+require_once plugin_dir_path(__FILE__) . 'wordpress-md2html.php';
+
 if (!defined('ABSPATH')) {
     exit;
 }
@@ -112,10 +114,23 @@ function mmm_add_product_data_fields() {
 // Save custom fields
 add_action('woocommerce_process_product_meta', 'mmm_save_product_data_fields');
 function mmm_save_product_data_fields($post_id) {
+    global $wpdb;
     $store_id = sanitize_text_field($_POST['_store_id']);
 
     if (!empty($store_id)) {
         update_post_meta($post_id, '_store_id', esc_attr($store_id));
+
+        // Save the product-store relationship
+        $existing_entry = $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$wpdb->prefix}product_store WHERE product_id = %d AND store_id = %d", $post_id, $store_id));
+        if ($existing_entry == 0) {
+            $wpdb->insert(
+                "{$wpdb->prefix}product_store",
+                array(
+                    'product_id' => $post_id,
+                    'store_id' => $store_id,
+                )
+            );
+        }
     }
 }
 
@@ -127,120 +142,9 @@ function mmm_display_store_info() {
     $store_id = get_post_meta($post->ID, '_store_id', true);
 
     if ($store_id) {
-        echo '<p><strong>Store ID: </strong>' . esc_html($store_id) . '</p>';
-    }
-}
-
-// Add store name filter to the products list
-add_action('restrict_manage_posts', 'mmm_add_store_name_filter');
-function mmm_add_store_name_filter() {
-    global $typenow, $wpdb;
-
-    if ($typenow != 'product') {
-        return;
-    }
-
-    $store_name = isset($_GET['store_name']) ? sanitize_text_field($_GET['store_name']) : '';
-
-    // Get distinct store names
-    $stores = $wpdb->get_results("SELECT DISTINCT store_name FROM {$wpdb->prefix}stores ORDER BY store_name ASC");
-
-    echo '<input type="text" name="store_name" id="store_name_filter" placeholder="' . __('Store Name', 'textdomain') . '" value="' . esc_attr($store_name) . '" />';
-    echo '<select name="store_id" id="store_id_filter">';
-    echo '<option value="">' . __('Select a Store', 'textdomain') . '</option>';
-    foreach ($stores as $store) {
-        $selected = ($store_name == $store->store_name) ? ' selected="selected"' : '';
-        echo '<option value="' . esc_attr($store->store_name) . '"' . $selected . '>' . esc_html($store->store_name) . '</option>';
-    }
-    echo '</select>';
-}
-
-// Adjust the Query to Filter Products by Store Name
-add_action('pre_get_posts', 'mmm_filter_products_by_store_name');
-function mmm_filter_products_by_store_name($query) {
-    global $pagenow, $wpdb;
-
-    if ($pagenow != 'edit.php' || !isset($_GET['post_type']) || $_GET['post_type'] != 'product') {
-        return;
-    }
-
-    if (!empty($_GET['store_name'])) {
-        $store_name = sanitize_text_field($_GET['store_name']);
-        $store_ids = $wpdb->get_col($wpdb->prepare("SELECT store_id FROM {$wpdb->prefix}stores WHERE store_name = %s", $store_name));
-
-        if (!empty($store_ids)) {
-            $product_ids = $wpdb->get_col("SELECT product_id FROM {$wpdb->prefix}product_store WHERE store_id IN (" . implode(',', array_map('intval', $store_ids)) . ")");
-            $query->query_vars['post__in'] = empty($product_ids) ? array(0) : $product_ids;
-        }
-    }
-}
-
-add_action('admin_footer', 'mmm_inline_store_name_filter_script');
-function mmm_inline_store_name_filter_script() {
-    global $typenow;
-
-    if ($typenow != 'product') {
-        return;
-    }
-    ?>
-    <script type="text/javascript">
-        jQuery(document).ready(function($) {
-            $('#store_name_filter').on('keyup', function() {
-                var input = $(this).val().toLowerCase();
-                $('#store_id_filter option').each(function() {
-                    var text = $(this).text().toLowerCase();
-                    if (text.indexOf(input) !== -1 || input === '') {
-                        $(this).show();
-                    } else {
-                        $(this).hide();
-                    }
-                });
-            });
-
-            $('#store_id_filter').on('change', function() {
-                $('#store_name_filter').val($(this).find('option:selected').text());
-            });
-        });
-    </script>
-    <?php
-}
-
-add_filter('parse_query', 'mmm_save_store_name_filter_in_query_string');
-function mmm_save_store_name_filter_in_query_string($query) {
-    global $pagenow, $typenow;
-
-    if ($pagenow != 'edit.php' || $typenow != 'product') {
-        return;
-    }
-
-    if (!empty($_GET['store_name'])) {
-        $query->set('meta_query', array(
-            array(
-                'key'     => '_store_id',
-                'value'   => sanitize_text_field($_GET['store_name']),
-                'compare' => 'LIKE',
-            ),
-        ));
-    }
-}
-
-add_filter('manage_edit-product_columns', 'mmm_add_store_name_column');
-function mmm_add_store_name_column($columns) {
-    $columns['store_name'] = __('Store Name', 'textdomain');
-    return $columns;
-}
-
-add_action('manage_product_posts_custom_column', 'mmm_display_store_name_column', 10, 2);
-function mmm_display_store_name_column($column, $post_id) {
-    if ($column == 'store_name') {
-        $store_id = get_post_meta($post_id, '_store_id', true);
-        if ($store_id) {
-            global $wpdb;
-            $store_name = $wpdb->get_var($wpdb->prepare("SELECT store_name FROM {$wpdb->prefix}stores WHERE store_id = %d", $store_id));
-            echo esc_html($store_name);
-        } else {
-            echo __('No Store', 'textdomain');
-        }
+        global $wpdb;
+        $store_name = $wpdb->get_var($wpdb->prepare("SELECT store_name FROM {$wpdb->prefix}stores WHERE store_id = %d", $store_id));
+        echo '<p><strong>Store: </strong>' . esc_html($store_name) . '</p>';
     }
 }
 
@@ -248,7 +152,6 @@ function mmm_display_store_name_column($column, $post_id) {
 
 #### Register Menu and Submenus
 
-// Add a menu item for managing stores
 add_action('admin_menu', 'mmm_register_store_menu');
 function mmm_register_store_menu() {
     add_menu_page(
@@ -299,11 +202,11 @@ function mmm_register_store_menu() {
 
     add_submenu_page(
         'store-management',
-        __('Import/Export', 'textdomain'),
-        __('Import/Export', 'textdomain'),
+        __('CSV View', 'textdomain'),
+        __('CSV View', 'textdomain'),
         'manage_options',
-        'import-export',
-        'mmm_store_import_export_page'
+        'csv-view',
+        'mmm_csv_view_page'
     );
 
     add_submenu_page(
@@ -315,6 +218,7 @@ function mmm_register_store_menu() {
         'mmm_api_usage_page'
     );
 }
+
 
 #### Main Store Management Page
 
@@ -342,9 +246,20 @@ function mmm_store_management_page() {
 }
 
 #### All Stores Page
-
 function mmm_all_stores_page() {
     global $wpdb;
+
+    if (isset($_POST['mmm_import_stores'])) {
+        check_admin_referer('import_stores_action', 'import_stores_nonce');
+        if (!empty($_FILES['import_file']['tmp_name'])) {
+            mmm_import_stores($_FILES['import_file']);
+            echo '<div class="notice notice-success is-dismissible"><p>' . __('Stores imported successfully.', 'textdomain') . '</p></div>';
+        }
+
+        if (empty($_FILES['import_file']['tmp_name'])) {
+            echo '<div class="notice notice-error is-dismissible"><p>' . __('Please select a file to import.', 'textdomain') . '</p></div>';
+        }
+    }
 
     $paged = isset($_GET['paged']) ? intval($_GET['paged']) : 1;
     $per_page = 10;
@@ -364,6 +279,21 @@ function mmm_all_stores_page() {
 
     echo '<div class="wrap">';
     echo '<h1>' . __('Stores', 'textdomain') . '</h1>';
+
+    // Export and Import Buttons
+    echo '<h2>' . __('Export Stores', 'textdomain') . '</h2>';
+    echo '<form method="post" action="' . admin_url('admin.php?page=csv-view') . '">';
+    wp_nonce_field('export_stores_action', 'export_stores_nonce');
+    echo '<input type="submit" name="mmm_export_stores" class="button button-primary" value="' . __('View Stores as CSV', 'textdomain') . '" />';
+    echo '</form>';
+
+    echo '<h2>' . __('Import Stores', 'textdomain') . '</h2>';
+    echo '<form method="post" action="" enctype="multipart/form-data">';
+    wp_nonce_field('import_stores_action', 'import_stores_nonce');
+    echo '<input type="file" name="import_file" accept=".csv" required />';
+    echo '<input type="submit" name="mmm_import_stores" class="button button-primary" value="' . __('Import Stores', 'textdomain') . '" />';
+    echo '</form>';
+
     echo '<form method="get" action="">';
     echo '<input type="hidden" name="page" value="all-stores" />';
     echo '<p class="search-box">';
@@ -418,6 +348,7 @@ function mmm_all_stores_page() {
 
     echo '</div>';
 }
+
 
 #### Add New Store Page
 
@@ -491,9 +422,7 @@ function mmm_store_reviews_page() {
     echo '<p class="filter-box">';
     echo '<label for="store-filter">' . __('Store', 'textdomain') . '</label>';
     echo '<select name="store_id" id="store-filter">';
-    echo '<option value="">'
-
-        . __('All Stores', 'textdomain') . '</option>';
+    echo '<option value="">' . __('All Stores', 'textdomain') . '</option>';
     $stores = mmm_get_stores();
     foreach ($stores as $store) {
         echo '<option value="' . esc_attr($store->store_id) . '"' . selected($store->store_id, $store_filter, false) . '>' . esc_html($store->store_name) . '</option>';
@@ -630,16 +559,15 @@ function mmm_store_hours_page() {
 #### Import-Export Page
 
 function mmm_store_import_export_page() {
-    if (isset($_POST['mmm_export_stores'])) {
-        check_admin_referer('export_stores_action', 'export_stores_nonce');
-        mmm_export_stores();
-    }
-
     if (isset($_POST['mmm_import_stores'])) {
         check_admin_referer('import_stores_action', 'import_stores_nonce');
         if (!empty($_FILES['import_file']['tmp_name'])) {
             mmm_import_stores($_FILES['import_file']);
             echo '<div class="notice notice-success is-dismissible"><p>' . __('Stores imported successfully.', 'textdomain') . '</p></div>';
+        }
+
+        if (empty($_FILES['import_file']['tmp_name'])) {
+            echo '<div class="notice notice-error is-dismissible"><p>' . __('Please select a file to import.', 'textdomain') . '</p></div>';
         }
     }
 
@@ -648,9 +576,9 @@ function mmm_store_import_export_page() {
     echo '<p>' . __('In this page, you can import and export store data.', 'textdomain') . '</p>';
 
     echo '<h2>' . __('Export Stores', 'textdomain') . '</h2>';
-    echo '<form method="post" action="">';
+    echo '<form method="post" action="' . admin_url('admin.php?page=csv-view') . '">';
     wp_nonce_field('export_stores_action', 'export_stores_nonce');
-    echo '<input type="submit" name="mmm_export_stores" class="button button-primary" value="' . __('Export Stores', 'textdomain') . '" />';
+    echo '<input type="submit" name="mmm_export_stores" class="button button-primary" value="' . __('View Stores as CSV', 'textdomain') . '" />';
     echo '</form>';
 
     echo '<h2>' . __('Import Stores', 'textdomain') . '</h2>';
@@ -662,30 +590,86 @@ function mmm_store_import_export_page() {
     echo '</div>';
 }
 
+function mmm_csv_view_page() {
+    echo '<div class="wrap">';
+    echo '<h1>' . __('Stores CSV View', 'textdomain') . '</h1>';
+
+    // Fetch stores data from the database
+    $stores = mmm_get_stores();
+
+    // Store the CSV content in a variable
+    $csv_content = "ID,Name,URL,Email,Phone,Logo URL,Background URL,Active,Validated,Created,Updated\n";
+    foreach ($stores as $store) {
+        $csv_content .= "{$store->store_id},"
+            . "{$store->store_name},"
+            . "{$store->store_url},"
+            . "{$store->email},"
+            . "{$store->phone},"
+            . "{$store->logo_url},"
+            . "{$store->background_url},"
+            . "{$store->active},"
+            . "{$store->validated},"
+            . "{$store->created},"
+            . "{$store->updated}\n";
+    }
+
+    // Display the CSV content in a textarea
+    echo '<textarea rows="20" cols="150">' . esc_textarea($csv_content) . '</textarea>';
+
+    // Add a form with a download button
+    echo '<form method="post" action="">';
+    wp_nonce_field('download_csv_action', 'download_csv_nonce');
+    echo '<input type="hidden" name="csv_content" value="' . esc_attr($csv_content) . '" />';
+    echo '<input type="submit" name="download_csv" class="button button-primary" value="' . __('Download CSV', 'textdomain') . '" />';
+    echo '</form>';
+
+    echo '</div>';
+}
+
+
+
 #### API Usage Page
 
 function mmm_api_usage_page() {
-    echo '<div class="wrap">';
-    echo '<h1>' . __('MMM API Usage', 'textdomain') . '</h1>';
-    echo '<p>' . __('Here you can see the usage of the WooCommerce MMM API.', 'textdomain') . '</p>';
-    echo '<h2>' . __('Available Endpoints', 'textdomain') . '</h2>';
-    echo '<ul>';
-    echo '<li><strong>' . __('Get All Stores:', 'textdomain') . '</strong> GET /wp-json/mmm/v1/stores</li>';
-    echo '<li><strong>' . __('Add Store:', 'textdomain') . '</strong> POST /wp-json/mmm/v1/store</li>';
-    echo '<li><strong>' . __('Get Store by ID:', 'textdomain') . '</strong> GET /wp-json/mmm/v1/store/(?P<id>\d+)</li>';
-    echo '<li><strong>' . __('Update Store:', 'textdomain') . '</strong> POST /wp-json/mmm/v1/store/(?P<id>\d+)</li>';
-    echo '<li><strong>' . __('Delete Store:', 'textdomain') . '</strong> DELETE /wp-json/mmm/v1/store/(?P<id>\d+)</li>';
-    echo '<li><strong>' . __('Export Stores:', 'textdomain') . '</strong> GET /wp-json/mmm/v1/stores/export</li>';
-    echo '<li><strong>' . __('Import Stores:', 'textdomain') . '</strong> POST /wp-json/mmm/v1/stores/import</li>';
-    echo '<li><strong>' . __('Remove All Stores:', 'textdomain') . '</strong> POST /wp-json/mmm/v1/stores/remove_all</li>';
-    echo '<li><strong>' . __('Generate Mock Stores:', 'textdomain') . '</strong> POST /wp-json/mmm/v1/stores/generate_mock</li>';
-    echo '<li><strong>' . __('Get Store Hours:', 'textdomain') . '</strong> GET /wp-json/mmm/v1/store/(?P<id>\d+)/hours</li>';
-    echo '<li><strong>' . __('Add Store Hour:', 'textdomain') . '</strong> POST /wp-json/mmm/v1/store/(?P<id>\d+)/hour</li>';
-    echo '<li><strong>' . __('Update Store Hour:', 'textdomain') . '</strong> POST /wp-json/mmm/v1/store/hour/(?P<hour_id>\d+)</li>';
-    echo '<li><strong>' . __('Delete Store Hour:', 'textdomain') . '</strong> DELETE /wp-json/mmm/v1/store/hour/(?P<hour_id>\d+)</li>';
-    echo '</ul>';
-    echo '</div>';
+    // Get the path to the ReadMe.md file
+    $readme_path = plugin_dir_path(__FILE__) . 'ReadMe.md';
+
+    // Check if the ReadMe.md file exists
+    if (file_exists($readme_path)) {
+        // Get the content of the ReadMe.md file
+        $markdown_content = file_get_contents($readme_path);
+
+        // Check if the Parsedown class exists
+        if (class_exists('Markdown2Html')) {
+            // Create a new Parsedown instance
+            $Parsedown = new Markdown2Html();
+
+            // Convert Markdown content to HTML
+            $html_content = $Parsedown->text($markdown_content);
+
+            // Display the HTML content
+            echo '<div class="wrap">';
+            echo '<h1>' . __('MMM API Usage', 'textdomain') . '</h1>';
+            echo $html_content;
+            echo '</div>';
+        } else {
+            // Display an error message if Parsedown is not available
+            error_log('Parsedown class not found.');
+            echo '<div class="wrap">';
+            echo '<h1>' . __('MMM API Usage', 'textdomain') . '</h1>';
+            echo '<p>' . __('Parsedown class not found.', 'textdomain') . '</p>';
+            echo '</div>';
+        }
+    } else {
+        // Display an error message if the ReadMe.md file is not found
+        error_log('ReadMe.md file not found: ' . $readme_path);
+        echo '<div class="wrap">';
+        echo '<h1>' . __('MMM API Usage', 'textdomain') . '</h1>';
+        echo '<p>' . __('The ReadMe.md file is not found.', 'textdomain') . '</p>';
+        echo '</div>';
+    }
 }
+
 
 ### Block 5: Helper Functions and API Endpoints
 
@@ -788,35 +772,34 @@ function mmm_generate_mock_stores($number_of_stores) {
 }
 
 function mmm_export_stores() {
-    if (!current_user_can('manage_options')) {
-        return;
+    // Check user permissions and nonce for security
+    if (!current_user_can('export_stores')) {
+        wp_die('You do not have sufficient permissions to access this page.');
     }
+    check_admin_referer('export_stores_action', 'export_stores_nonce');
 
-    $stores = mmm_get_stores();
+    // Fetch stores data from the database
+    $stores = mmm_get_stores(); // This function needs to be defined to fetch store data
 
+    // Set HTTP headers for CSV output
     header('Content-Type: text/csv');
     header('Content-Disposition: attachment; filename="stores.csv"');
 
-    $output = fopen('php://output', 'w', 'UTF-8');
-    fputcsv($output, array('store_id', 'store_name', 'store_url', 'email', 'phone', 'logo_url', 'background_url', 'active', 'validated', 'created', 'updated'));
+    // Open the output stream
+    $output = fopen('php://output', 'w');
 
+    // Optionally add CSV header
+    fputcsv($output, array('Store ID', 'Store Name', 'Store URL', 'Email', 'Phone'));
+
+    // Output each store's data as a CSV row
     foreach ($stores as $store) {
-        fputcsv($output, array(
-            $store->store_id,
-            $store->store_name,
-            $store->store_url,
-            $store->email,
-            $store->phone,
-            $store->logo_url,
-            $store->background_url,
-            $store->active,
-            $store->validated,
-            $store->created,
-            $store->updated
-        ));
+        fputcsv($output, array($store->store_id, $store->store_name, $store->store_url, $store->email, $store->phone));
     }
 
+    // Close the output stream
     fclose($output);
+
+    // Terminate the script to prevent any further output
     exit;
 }
 
@@ -1080,6 +1063,27 @@ function mmm_delete_store_hour_endpoint(WP_REST_Request $request) {
 
 // Add the actions for handling form submissions:
 
+// Handle CSV download action
+add_action('admin_init', 'mmm_handle_csv_download');
+
+function mmm_handle_csv_download() {
+    if (isset($_POST['download_csv']) && check_admin_referer('download_csv_action', 'download_csv_nonce')) {
+        if (isset($_POST['csv_content'])) {
+            $csv_content = sanitize_textarea_field($_POST['csv_content']);
+            $csv_filename = 'stores.csv';
+
+            header('Content-Type: text/csv');
+            header('Content-Disposition: attachment; filename=' . $csv_filename);
+            header('Pragma: no-cache');
+            header('Expires: 0');
+
+            echo $csv_content;
+            exit;
+        }
+    }
+}
+
+
 // Handle generate mock stores action
 add_action('admin_post_generate_mock_stores', 'mmm_handle_generate_mock_stores');
 function mmm_handle_generate_mock_stores() {
@@ -1218,4 +1222,365 @@ function mmm_edit_store_hour_page() {
 function mmm_get_store_hour($hour_id) {
     global $wpdb;
     return $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}store_hours WHERE id = %d", $hour_id));
+}
+
+### Block 9: Adding Store Name Filter for Products
+
+// Add store name filter to the products list
+add_action('restrict_manage_posts', 'mmm_add_store_name_filter');
+function mmm_add_store_name_filter() {
+    global $typenow, $wpdb;
+
+    if ($typenow != 'product') {
+        return;
+    }
+
+    $store_name = isset($_GET['store_name']) ? sanitize_text_field($_GET['store_name']) : '';
+
+    // Get distinct store names
+    $stores = $wpdb->get_results("SELECT DISTINCT store_name FROM {$wpdb->prefix}stores ORDER BY store_name ASC");
+
+    echo '<input type="text" name="store_name" id="store_name_filter" placeholder="' . __('Store Name', 'textdomain') . '" value="' . esc_attr($store_name) . '" />';
+    echo '<select name="store_id" id="store_id_filter">';
+    echo '<option value="">' . __('Select a Store', 'textdomain') . '</option>';
+    foreach ($stores as $store) {
+        $selected = ($store_name == $store->store_name) ? ' selected="selected"' : '';
+        echo '<option value="' . esc_attr($store->store_id) . '"' . $selected . '>' . esc_html($store->store_name) . '</option>';
+    }
+    echo '</select>';
+}
+
+// Adjust the Query to Filter Products by Store Name
+add_action('pre_get_posts', 'mmm_filter_products_by_store_name');
+function mmm_filter_products_by_store_name($query) {
+    global $pagenow, $wpdb;
+
+    if ($pagenow != 'edit.php' || !isset($_GET['post_type']) || $_GET['post_type'] != 'product') {
+        return;
+    }
+
+    if (!empty($_GET['store_name'])) {
+        $store_name = sanitize_text_field($_GET['store_name']);
+        $store_ids = $wpdb->get_col($wpdb->prepare("SELECT store_id FROM {$wpdb->prefix}stores WHERE store_name = %s", $store_name));
+
+        if (!empty($store_ids)) {
+            $product_ids = $wpdb->get_col("SELECT product_id FROM {$wpdb->prefix}product_store WHERE store_id IN (" . implode(',', array_map('intval', $store_ids)) . ")");
+            $query->query_vars['post__in'] = empty($product_ids) ? array(0) : $product_ids;
+        }
+    }
+}
+
+add_action('admin_footer', 'mmm_inline_store_name_filter_script');
+function mmm_inline_store_name_filter_script() {
+    global $typenow;
+
+    if ($typenow != 'product') {
+        return;
+    }
+    ?>
+    <script type="text/javascript">
+        jQuery(document).ready(function($) {
+            $('#store_name_filter').on('keyup', function() {
+                var input = $(this).val().toLowerCase();
+                $('#store_id_filter option').each(function() {
+                    var text = $(this).text().toLowerCase();
+                    if (text.indexOf(input) !== -1 || input === '') {
+                        $(this).show();
+                    } else {
+                        $(this).hide();
+                    }
+                });
+            });
+
+            $('#store_id_filter').on('change', function() {
+                $('#store_name_filter').val($(this).find('option:selected').text());
+            });
+        });
+    </script>
+    <?php
+}
+
+add_filter('parse_query', 'mmm_save_store_name_filter_in_query_string');
+function mmm_save_store_name_filter_in_query_string($query) {
+    global $pagenow, $typenow;
+
+    if ($pagenow != 'edit.php' || $typenow != 'product') {
+        return;
+    }
+
+    if (!empty($_GET['store_name'])) {
+        $query->set('meta_query', array(
+            array(
+                'key'     => '_store_id',
+                'value'   => sanitize_text_field($_GET['store_name']),
+                'compare' => 'LIKE',
+            ),
+        ));
+    }
+}
+
+add_filter('manage_edit-product_columns', 'mmm_add_store_name_column');
+function mmm_add_store_name_column($columns) {
+    $columns['store_name'] = __('Store Name', 'textdomain');
+    return $columns;
+}
+
+add_action('manage_product_posts_custom_column', 'mmm_display_store_name_column', 10, 2);
+function mmm_display_store_name_column($column, $post_id) {
+    if ($column == 'store_name') {
+        $store_id = get_post_meta($post_id, '_store_id', true);
+        if ($store_id) {
+            global $wpdb;
+            $store_name = $wpdb->get_var($wpdb->prepare("SELECT store_name FROM {$wpdb->prefix}stores WHERE store_id = %d", $store_id));
+            echo esc_html($store_name);
+        } else {
+            echo __('No Store', 'textdomain');
+        }
+    }
+}
+
+### Block 10: Adding Store Name Filter for Reviews
+
+// Add store name filter to the reviews list
+
+add_action('restrict_manage_posts', 'mmm_add_store_name_filter_for_reviews');
+
+function mmm_add_store_name_filter_for_reviews() {
+    global $typenow, $wpdb;
+
+    if ($typenow != 'product') {
+        return;
+    }
+
+    $store_name = isset($_GET['store_name']) ? sanitize_text_field($_GET['store_name']) : '';
+
+    // Get distinct store names
+    $stores = $wpdb->get_results("SELECT DISTINCT store_name FROM {$wpdb->prefix}stores ORDER BY store_name ASC");
+
+    echo '<input type="text" name="store_name" id="store_name_filter" placeholder="' . __('Store Name', 'textdomain') . '" value="' . esc_attr($store_name) . '" />';
+    echo '<select name="store_id" id="store_id_filter">';
+    echo '<option value="">' . __('Select a Store', 'textdomain') . '</option>';
+    foreach ($stores as $store) {
+        $selected = ($store_name == $store->store_name) ? ' selected="selected"' : '';
+        echo '<option value="' . esc_attr($store->store_id) . '"' . $selected . '>' . esc_html($store->store_name) . '</option>';
+    }
+    echo '</select>';
+}
+
+// Adjust the Query to Filter Reviews by Store Name
+
+add_action('pre_get_posts', 'mmm_filter_reviews_by_store_name');
+
+function mmm_filter_reviews_by_store_name($query) {
+    global $pagenow, $wpdb;
+
+    if ($pagenow != 'edit.php' || !isset($_GET['post_type']) || $_GET['post_type'] != 'product') {
+        return;
+    }
+
+    if (!empty($_GET['store_name'])) {
+        $store_name = sanitize_text_field($_GET['store_name']);
+        $store_ids = $wpdb->get_col($wpdb->prepare("SELECT store_id FROM {$wpdb->prefix}stores WHERE store_name = %s", $store_name));
+
+        if (!empty($store_ids)) {
+            $product_ids = $wpdb->get_col("SELECT product_id FROM {$wpdb->prefix}product_store WHERE store_id IN (" . implode(',', array_map('intval', $store_ids)) . ")");
+            $query->query_vars['post__in'] = empty($product_ids) ? array(0) : $product_ids;
+        }
+    }
+}
+
+add_action('admin_footer', 'mmm_inline_store_name_filter_script_for_reviews');
+
+function mmm_inline_store_name_filter_script_for_reviews() {
+    global $typenow;
+
+    if ($typenow != 'product') {
+        return;
+    }
+    ?>
+    <script type="text/javascript">
+        jQuery(document).ready(function($) {
+            $('#store_name_filter').on('keyup', function() {
+                var input = $(this).val().toLowerCase();
+                $('#store_id_filter option').each(function() {
+                    var text = $(this).text().toLowerCase();
+                    if (text.indexOf(input) !== -1 || input === '') {
+                        $(this).show();
+                    } else {
+                        $(this).hide();
+                    }
+                });
+            });
+
+            $('#store_id_filter').on('change', function() {
+                $('#store_name_filter').val($(this).find('option:selected').text());
+            });
+        });
+    </script>
+    <?php
+}
+
+add_filter('parse_query', 'mmm_save_store_name_filter_in_query_string_for_reviews');
+
+function mmm_save_store_name_filter_in_query_string_for_reviews($query) {
+    global $pagenow, $typenow;
+
+    if ($pagenow != 'edit.php' || $typenow != 'product') {
+        return;
+    }
+
+    if (!empty($_GET['store_name'])) {
+        $query->set('meta_query', array(
+            array(
+                'key'     => '_store_id',
+                'value'   => sanitize_text_field($_GET['store_name']),
+                'compare' => 'LIKE',
+            ),
+        ));
+    }
+}
+
+add_filter('manage_edit-product_columns', 'mmm_add_store_name_column_for_reviews');
+
+function mmm_add_store_name_column_for_reviews($columns) {
+    $columns['store_name'] = __('Store Name', 'textdomain');
+    return $columns;
+}
+
+add_action('manage_product_posts_custom_column', 'mmm_display_store_name_column_for_reviews', 10, 2);
+
+function mmm_display_store_name_column_for_reviews($column, $post_id) {
+    if ($column == 'store_name') {
+        $store_id = get_post_meta($post_id, '_store_id', true);
+        if ($store_id) {
+            global $wpdb;
+            $store_name = $wpdb->get_var($wpdb->prepare("SELECT store_name FROM {$wpdb->prefix}stores WHERE store_id = %d", $store_id));
+            echo esc_html($store_name);
+        } else {
+            echo __('No Store', 'textdomain');
+        }
+    }
+}
+
+### Block 11: Adding Store Name Filter for Store Hours
+
+// Add store name filter to the store hours list
+
+add_action('restrict_manage_posts', 'mmm_add_store_name_filter_for_store_hours');
+
+function mmm_add_store_name_filter_for_store_hours() {
+    global $typenow, $wpdb;
+
+    if ($typenow != 'product') {
+        return;
+    }
+
+    $store_name = isset($_GET['store_name']) ? sanitize_text_field($_GET['store_name']) : '';
+
+    // Get distinct store names
+    $stores = $wpdb->get_results("SELECT DISTINCT store_name FROM {$wpdb->prefix}stores ORDER BY store_name ASC");
+
+    echo '<input type="text" name="store_name" id="store_name_filter" placeholder="' . __('Store Name', 'textdomain') . '" value="' . esc_attr($store_name) . '" />';
+    echo '<select name="store_id" id="store_id_filter">';
+    echo '<option value="">' . __('Select a Store', 'textdomain') . '</option>';
+    foreach ($stores as $store) {
+        $selected = ($store_name == $store->store_name) ? ' selected="selected"' : '';
+        echo '<option value="' . esc_attr($store->store_id) . '"' . $selected . '>' . esc_html($store->store_name) . '</option>';
+    }
+    echo '</select>';
+}
+
+// Adjust the Query to Filter Store Hours by Store Name
+
+add_action('pre_get_posts', 'mmm_filter_store_hours_by_store_name');
+
+function mmm_filter_store_hours_by_store_name($query) {
+    global $pagenow, $wpdb;
+
+    if ($pagenow != 'edit.php' || !isset($_GET['post_type']) || $_GET['post_type'] != 'product') {
+        return;
+    }
+
+    if (!empty($_GET['store_name'])) {
+        $store_name = sanitize_text_field($_GET['store_name']);
+        $store_ids = $wpdb->get_col($wpdb->prepare("SELECT store_id FROM {$wpdb->prefix}stores WHERE store_name = %s", $store_name));
+
+        if (!empty($store_ids)) {
+            $product_ids = $wpdb->get_col("SELECT product_id FROM {$wpdb->prefix}product_store WHERE store_id IN (" . implode(',', array_map('intval', $store_ids)) . ")");
+            $query->query_vars['post__in'] = empty($product_ids) ? array(0) : $product_ids;
+        }
+    }
+}
+
+add_action('admin_footer', 'mmm_inline_store_name_filter_script_for_store_hours');
+
+function mmm_inline_store_name_filter_script_for_store_hours() {
+    global $typenow;
+
+    if ($typenow != 'product') {
+        return;
+    }
+    ?>
+    <script type="text/javascript">
+        jQuery(document).ready(function($) {
+            $('#store_name_filter').on('keyup', function() {
+                var input = $(this).val().toLowerCase();
+                $('#store_id_filter option').each(function() {
+                    var text = $(this).text().toLowerCase();
+                    if (text.indexOf(input) !== -1 || input === '') {
+                        $(this).show();
+                    } else {
+                        $(this).hide();
+                    }
+                });
+            });
+
+            $('#store_id_filter').on('change', function() {
+                $('#store_name_filter').val($(this).find('option:selected').text());
+            });
+        });
+    </script>
+    <?php
+}
+
+add_filter('parse_query', 'mmm_save_store_name_filter_in_query_string_for_store_hours');
+
+function mmm_save_store_name_filter_in_query_string_for_store_hours($query) {
+    global $pagenow, $typenow;
+
+    if ($pagenow != 'edit.php' || $typenow != 'product') {
+        return;
+    }
+
+    if (!empty($_GET['store_name'])) {
+        $query->set('meta_query', array(
+            array(
+                'key'     => '_store_id',
+                'value'   => sanitize_text_field($_GET['store_name']),
+                'compare' => 'LIKE',
+            ),
+        ));
+    }
+}
+
+add_filter('manage_edit-product_columns', 'mmm_add_store_name_column_for_store_hours');
+
+function mmm_add_store_name_column_for_store_hours($columns) {
+    $columns['store_name'] = __('Store Name', 'textdomain');
+    return $columns;
+}
+
+add_action('manage_product_posts_custom_column', 'mmm_display_store_name_column_for_store_hours', 10, 2);
+
+function mmm_display_store_name_column_for_store_hours($column, $post_id) {
+    if ($column == 'store_name') {
+        $store_id = get_post_meta($post_id, '_store_id', true);
+        if ($store_id) {
+            global $wpdb;
+            $store_name = $wpdb->get_var($wpdb->prepare("SELECT store_name FROM {$wpdb->prefix}stores WHERE store_id = %d", $store_id));
+            echo esc_html($store_name);
+        } else {
+            echo __('No Store', 'textdomain');
+        }
+    }
 }
