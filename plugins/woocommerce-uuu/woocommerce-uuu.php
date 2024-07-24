@@ -1,8 +1,8 @@
 <?php
 /*
 Plugin Name: woocommerce-uuu
-Description: Import WooCommerce products from CSV or JSON files including product images.
-Version: 1.0.1
+Description: WooCommerce Universal Upload Utility helps to import WooCommerce products from CSV or JSON files including product images.
+Version: 1.0.2
 Author: Yilmaz Mustafa, Sergey Ryskin, Atilla Balin, ChatGPT
 */
 
@@ -16,16 +16,27 @@ function wpi_add_admin_menu() {
     add_menu_page('Product Importer', 'Product Importer', 'manage_options', 'product-importer', 'wpi_import_page');
 }
 
-// Display import page
+// Display import/export page
 function wpi_import_page() {
     ?>
     <div class="wrap">
         <h1>WooCommerce Product Importer</h1>
         <form id="wpi-import-form" method="post" enctype="multipart/form-data">
+            <h2>Import Products</h2>
             <input type="file" name="import_file" id="import_file" required>
             <input type="submit" name="import_submit" value="Import Products" class="button button-primary">
         </form>
         <div id="wpi-import-results"></div>
+        <h2>Export Template</h2>
+        <form id="wpi-export-form" method="get" action="<?php echo admin_url('admin-ajax.php'); ?>">
+            <input type="hidden" name="action" value="wpi_export_template">
+            <select name="template_format">
+                <option value="csv">CSV</option>
+                <option value="json">JSON</option>
+                <option value="xml">XML</option>
+            </select>
+            <input type="submit" value="Export Template" class="button button-secondary">
+        </form>
     </div>
     <script>
         document.getElementById('wpi-import-form').onsubmit = function(e) {
@@ -158,5 +169,55 @@ function wpi_upload_image($image_path) {
     wp_update_attachment_metadata($attach_id, $attach_data);
 
     return $attach_id;
+}
+
+// Handle template export
+add_action('wp_ajax_wpi_export_template', 'wpi_export_template');
+function wpi_export_template() {
+    if (!current_user_can('manage_options')) {
+        wp_die('Permission denied');
+    }
+
+    $format = isset($_GET['template_format']) ? sanitize_text_field($_GET['template_format']) : 'csv';
+    $filename = "woocommerce_product_template.$format";
+
+    $template_data = [
+        ['sku', 'name', 'price', 'description', 'category', 'image'],
+        ['123', 'Sample Product', '19.99', 'This is a sample product.', 'Category', '/path/to/image.jpg']
+    ];
+
+    switch ($format) {
+        case 'json':
+            header('Content-Type: application/json');
+            header("Content-Disposition: attachment; filename=$filename");
+            echo json_encode(array_map('array_combine', array_fill(0, count($template_data), $template_data[0]), array_slice($template_data, 1)));
+            break;
+
+        case 'xml':
+            header('Content-Type: text/xml');
+            header("Content-Disposition: attachment; filename=$filename");
+            $xml_data = new SimpleXMLElement('<products/>');
+            foreach (array_slice($template_data, 1) as $row) {
+                $product = $xml_data->addChild('product');
+                foreach ($template_data[0] as $key => $value) {
+                    $product->addChild($value, $row[$key]);
+                }
+            }
+            echo $xml_data->asXML();
+            break;
+
+        case 'csv':
+        default:
+            header('Content-Type: text/csv');
+            header("Content-Disposition: attachment; filename=$filename");
+            $output = fopen('php://output', 'w');
+            foreach ($template_data as $row) {
+                fputcsv($output, $row);
+            }
+            fclose($output);
+            break;
+    }
+
+    exit;
 }
 ?>
