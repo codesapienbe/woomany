@@ -1,7 +1,7 @@
 <?php
 /*
-Plugin Name: woocommerce-uuu
-Description: WooCommerce Universal Upload Utility helps to import WooCommerce products from CSV or JSON files including product images.
+Plugin Name: WooCommerce UUU
+Description: Universal Upload Utility helps to import WooCommerce products from CSV or JSON files including product images, and export template files.
 Version: 1.0.2
 Author: Yilmaz Mustafa, Sergey Ryskin, Atilla Balin, ChatGPT
 */
@@ -10,10 +10,10 @@ if (!defined('ABSPATH')) {
     exit; // Exit if accessed directly
 }
 
-// Add menu page
+// Add sub-menu page under Products
 add_action('admin_menu', 'wpi_add_admin_menu');
 function wpi_add_admin_menu() {
-    add_menu_page('Product Importer', 'Product Importer', 'manage_options', 'product-importer', 'wpi_import_page');
+    add_submenu_page('edit.php?post_type=product', 'Product Importer', 'Product Importer', 'manage_options', 'product-importer', 'wpi_import_page', 'dashicons-upload');
 }
 
 // Display import/export page
@@ -190,7 +190,9 @@ function wpi_export_template() {
         case 'json':
             header('Content-Type: application/json');
             header("Content-Disposition: attachment; filename=$filename");
-            echo json_encode(array_map('array_combine', array_fill(0, count($template_data), $template_data[0]), array_slice($template_data, 1)));
+            echo json_encode(array_slice(array_map(function($row) use ($template_data) {
+                return array_combine($template_data[0], $row);
+            }, array_slice($template_data, 1)), 0));
             break;
 
         case 'xml':
