@@ -434,3 +434,6 @@ cython_debug/
 woocommerce-ccc.zip
 woocommerce-mmm.zip
 
+/.idea/csv-editor.xml
+/.idea/dataSources.xml
+/.idea/php.xml
